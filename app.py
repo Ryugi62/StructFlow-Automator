@@ -69,9 +69,7 @@ class App(SingletonApp, ctk.CTk):
         main_frame.grid(row=0, column=1, sticky="nswe", padx=20, pady=20)
         main_frame.grid_columnconfigure(0, weight=1)
         main_frame.grid_rowconfigure(0, weight=1)
-        self.tabs_content = {
-            1: self.create_tab_content_new(main_frame),
-        }
+        self.tabs_content = {1: self.create_tab_content_new(main_frame)}
 
     def update_button_styles(self, active_index):
         for index, button in self.tab_buttons.items():
@@ -87,18 +85,17 @@ class App(SingletonApp, ctk.CTk):
     def create_tab_content_new(self, parent):
         frame = ctk.CTkFrame(parent, width=1100, height=728, fg_color="#2b2b2b")
         frame.configure(bg_color="#2b2b2b")
-        self.add_section_label(frame, "기본 정보", 0.05)
-        self.add_basic_info_labels_and_entries(frame)
-        self.add_section_label(frame, "모델링 형태", 0.55)
-        self.add_modeling_type_checkboxes(frame)
-        self.add_section_label(frame, "건물", 0.05, 0.4)
-        self.add_division_settings(frame)
-        self.add_section_label(frame, "태양광 형태", 0.55, 0.4)
-        self.add_solar_type_checkboxes(frame)
-        self.add_section_label(frame, "건물 정보", 0.05, 0.7)
-        self.add_advanced_building_info(frame)
-        self.add_section_label(frame, "태양광 기타해석", 0.55, 0.7)
-        self.add_analysis_options(frame)
+        sections = [
+            ("기본 정보", 0.05, self.add_basic_info_labels_and_entries),
+            ("모델링 형태", 0.55, self.add_modeling_type_checkboxes),
+            ("건물", 0.05, self.add_division_settings, 0.4),
+            ("태양광 형태", 0.55, self.add_solar_type_checkboxes, 0.4),
+            ("건물 정보", 0.05, self.add_advanced_building_info, 0.7),
+            ("태양광 기타해석", 0.55, self.add_analysis_options, 0.7),
+        ]
+        for text, rel_y, func, rel_x in sections:
+            self.add_section_label(frame, text, rel_y, rel_x if rel_x else 0.05)
+            func(frame)
         self.add_log_box(frame)
         self.add_create_button(frame)
         return frame
@@ -128,9 +125,7 @@ class App(SingletonApp, ctk.CTk):
                     width=10,
                 )
                 button.place(relx=0.25, rely=y_offset, anchor=ctk.W)
-                entry.place(relx=0.15, rely=y_offset, anchor=ctk.W)
-            else:
-                entry.place(relx=0.15, rely=y_offset, anchor=ctk.W)
+            entry.place(relx=0.15, rely=y_offset, anchor=ctk.W)
             ctk.CTkLabel(parent, text=label).place(
                 relx=0.05, rely=y_offset, anchor=ctk.W
             )
@@ -138,51 +133,33 @@ class App(SingletonApp, ctk.CTk):
 
     def add_modeling_type_checkboxes(self, parent):
         y_offset = 0.65
-        ctk.CTkCheckBox(parent, text="타입분할").place(
-            relx=0.05, rely=y_offset, anchor=ctk.W
-        )
-        ctk.CTkCheckBox(parent, text="건물 / 태양광 통합").place(
-            relx=0.05, rely=y_offset + 0.075, anchor=ctk.W
-        )
+        options = ["타입분할", "건물 / 태양광 통합"]
+        for i, option in enumerate(options):
+            ctk.CTkCheckBox(parent, text=option).place(
+                relx=0.05, rely=y_offset + 0.075 * i, anchor=ctk.W
+            )
 
     def add_division_settings(self, parent):
-        division_labels = ["크레인", "지진", "바닥 활하중", "기타 고정하중", "펄린"]
-        y_offset = 0.15
-        for label in division_labels:
-            ctk.CTkCheckBox(parent, text=label).place(
-                relx=0.4, rely=y_offset, anchor=ctk.W
-            )
-            y_offset += 0.075
+        labels = ["크레인", "지진", "바닥 활하중", "기타 고정하중", "펄린"]
+        self.add_checkboxes(parent, labels, 0.4, 0.15)
 
     def add_solar_type_checkboxes(self, parent):
-        y_offset = 0.65
-        ctk.CTkCheckBox(parent, text="기본형").place(
-            relx=0.4, rely=y_offset, anchor=ctk.W
-        )
-        ctk.CTkCheckBox(parent, text="부착형").place(
-            relx=0.4, rely=y_offset + 0.075, anchor=ctk.W
-        )
-        ctk.CTkCheckBox(parent, text="알류미늄").place(
-            relx=0.4, rely=y_offset + 0.15, anchor=ctk.W
-        )
+        labels = ["기본형", "부착형", "알류미늄"]
+        self.add_checkboxes(parent, labels, 0.4, 0.65)
 
     def add_advanced_building_info(self, parent):
-        advanced_labels = ["토지위(푸팅)", "토지위(파일)", "슬라브위", "건물위"]
-        y_offset = 0.15
-        for label in advanced_labels:
-            ctk.CTkCheckBox(parent, text=label).place(
-                relx=0.7, rely=y_offset, anchor=ctk.W
-            )
-            y_offset += 0.075
+        labels = ["토지위(푸팅)", "토지위(파일)", "슬라브위", "건물위"]
+        self.add_checkboxes(parent, labels, 0.7, 0.15)
 
     def add_analysis_options(self, parent):
-        advanced_labels = ["접합부", "안전로프"]
-        y_offset = 0.65
-        for label in advanced_labels:
+        labels = ["접합부", "안전로프"]
+        self.add_checkboxes(parent, labels, 0.7, 0.65)
+
+    def add_checkboxes(self, parent, labels, relx, start_y):
+        for i, label in enumerate(labels):
             ctk.CTkCheckBox(parent, text=label).place(
-                relx=0.7, rely=y_offset, anchor=ctk.W
+                relx=relx, rely=start_y + 0.075 * i, anchor=ctk.W
             )
-            y_offset += 0.075
 
     def add_log_box(self, parent):
         log_frame = ctk.CTkFrame(parent, width=850, height=20, fg_color="#2b2b2b")
