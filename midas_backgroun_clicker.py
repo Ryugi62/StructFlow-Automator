@@ -27,18 +27,27 @@ if main_window_handle:
 
     for hwnd in midas_gen_handles:
         # 클릭할 위치 지정
-        lParam = win32api.MAKELONG(845, 73)
+        lParam = win32api.MAKELONG(842, 78)
+
+        # 백그라운드에서 활성화
+        win32gui.PostMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
+        win32api.Sleep(125)
 
         # 백그라운드 마우스 이동 이벤트 전송
         win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
-        win32api.Sleep(100)
+        win32api.Sleep(125)
 
         # 마우스 클릭 다운 이벤트 전송
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam)
-        win32api.Sleep(100)  # 클릭 유지 시간
+        win32api.Sleep(75)  # 클릭 유지 시간
 
         # 마우스 클릭 업 이벤트 전송
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, win32con.MK_LBUTTON, lParam)
-        win32api.Sleep(1000)  # 다음 클릭까지 쉬는 시간
+        win32api.Sleep(75)  # 클릭 유지 시간
+
+        # 백그라운드 마우스 이동 이벤트 전송
+        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
+        win32api.Sleep(125)
+
 else:
     print("지정된 이름의 창을 찾을 수 없습니다.")
