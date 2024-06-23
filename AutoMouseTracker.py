@@ -78,6 +78,7 @@ class MouseTracker(QWidget):
         self.speed_factor = 1.0
         self.capture_thread = None
         self.current_program_hwnd = win32gui.GetForegroundWindow()
+        self.hwnd_cache = {}
 
         self.mouse_listener = mouse.Listener(
             on_move=self.on_move, on_click=self.on_click
@@ -89,7 +90,7 @@ class MouseTracker(QWidget):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_program_label)
-        self.timer.start(500)  # 500ms마다 업데이트
+        self.timer.start(1000)
 
     def initUI(self):
         self.layout = QVBoxLayout()
@@ -148,7 +149,6 @@ class MouseTracker(QWidget):
             if pressed and self.recording:
                 hwnd = win32gui.WindowFromPoint((x, y))
                 if hwnd == self.current_program_hwnd or hwnd == 0:
-                    print("No hwnd found")
                     return
                 window_rect = win32gui.GetWindowRect(hwnd)
                 relative_x = x - window_rect[0]
@@ -177,7 +177,7 @@ class MouseTracker(QWidget):
                         "program_name": current_program,
                         "window_name": window_name,
                         "window_class": window_class,
-                        "hwnd": hwnd,  # Store the hwnd
+                        "hwnd": hwnd,
                         "time": time.time() - self.start_time,
                     }
                 )
@@ -186,9 +186,9 @@ class MouseTracker(QWidget):
 
     def on_press(self, key):
         try:
-            if key == keyboard.Key.f9:  # 녹화 시작/정지 단축키
+            if key == keyboard.Key.f9:
                 self.toggle_recording()
-            elif key == keyboard.Key.f10:  # 스크립트 재생 단축키
+            elif key == keyboard.Key.f10:
                 self.play_script()
         except Exception as e:
             print(f"Error in on_press: {e}")
@@ -205,7 +205,7 @@ class MouseTracker(QWidget):
                     new_height = int(max_width / aspect_ratio)
                 else:
                     new_height = max_height
-                    new_width = int(max.height * aspect_ratio)
+                    new_width = int(max_height * aspect_ratio)
                 img = cv2.resize(img, (new_width, new_height))
             height, width, channel = img.shape
             bytes_per_line = 3 * width
@@ -221,7 +221,6 @@ class MouseTracker(QWidget):
                 x, y = self.current
                 hwnd = win32gui.WindowFromPoint((x, y))
             if hwnd == 0:
-                print("No hwnd found")
                 return
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             current_program = "Unknown"
@@ -242,12 +241,6 @@ class MouseTracker(QWidget):
                 f"Target Window: {window_name} (hwnd: {hwnd}, class: {window_class})"
             )
 
-            # Start capturing the target window's image
-            if self.capture_thread is not None:
-                self.capture_thread.stop()
-            self.capture_thread = ImageCaptureThread(hwnd)
-            self.capture_thread.image_captured.connect(self.update_image_label)
-            self.capture_thread.start()
         except Exception as e:
             print(f"Error in update_program_label: {e}")
 
@@ -256,7 +249,6 @@ class MouseTracker(QWidget):
             x, y = self.current
             hwnd = win32gui.WindowFromPoint((x, y))
             if hwnd == self.current_program_hwnd or hwnd == 0:
-                print("No hwnd found")
                 return
             window_rect = win32gui.GetWindowRect(hwnd)
             relative_x = x - window_rect[0]
@@ -338,62 +330,87 @@ class MouseTracker(QWidget):
         if hwnd and win32gui.IsWindow(hwnd):
             return hwnd
 
-        # Fallback to finding hwnd by program name and window class
-        hwnd = self.find_hwnd(event["program_name"], event["window_class"])
+        cache_key = (event["program_name"], event["window_class"], event["window_name"])
+        if cache_key in self.hwnd_cache:
+            cached_hwnd = self.hwnd_cache[cache_key]
+            if win32gui.IsWindow(cached_hwnd):
+                return cached_hwnd
+
+        hwnd = self.find_hwnd(
+            event["program_name"], event["window_class"], event["window_name"]
+        )
+        if hwnd:
+            self.hwnd_cache[cache_key] = hwnd
         return hwnd
 
-    def find_hwnd(self, program_name, window_class):
-        try:
-            hwnds = []
+    def find_hwnd(self, program_name, window_class, window_name):
+        hwnds = []
 
-            def callback(hwnd, extra):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                    process_name = None
-                    for proc in psutil.process_iter(["pid", "name"]):
-                        if proc.info["pid"] == pid:
-                            process_name = proc.info["name"]
-                            break
-                    hwnd_window_class = win32gui.GetClassName(hwnd)
-                    if (
-                        process_name == program_name
-                        and window_class.split(":")[0] in hwnd_window_class
-                    ):
-                        hwnds.append(hwnd)
+        def callback(hwnd, extra):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                for proc in psutil.process_iter(["pid", "name"]):
+                    if proc.info["pid"] == pid and proc.info["name"] == program_name:
+                        hwnd_window_class = win32gui.GetClassName(hwnd)
+                        hwnd_window_name = win32gui.GetWindowText(hwnd)
+                        print(
+                            f"Top-level hwnd: {hwnd}, Class: {hwnd_window_class}, Name: {hwnd_window_name}, PID: {pid}"
+                        )
+                        if (
+                            window_class.split(":")[0] in hwnd_window_class
+                            and window_name in hwnd_window_name
+                        ):
+                            hwnds.append(hwnd)
+                        else:
+                            child_hwnd = self.find_child_hwnd_recursive(
+                                hwnd, window_class, window_name, set()
+                            )
+                            if child_hwnd:
+                                hwnds.append(child_hwnd)
 
-            win32gui.EnumWindows(callback, None)
-            if hwnds:
-                for hwnd in hwnds:
-                    child_hwnd = self.find_child_hwnd_recursive(hwnd, window_class)
-                    if child_hwnd:
-                        return child_hwnd
-                return hwnds[0]
-            else:
-                print(
-                    f"No hwnd found for program: {program_name}, window class: {window_class}"
-                )
-                return None
-        except Exception as e:
-            print(f"Error in find_hwnd: {e}")
+        win32gui.EnumWindows(callback, None)
+        if hwnds:
+            print(f"Found matching hwnds: {hwnds}")  # Debugging log
+            return hwnds[0]
+        else:
+            print(
+                f"No matching hwnd found for program: {program_name}, window class: {window_class}, window name: {window_name}"
+            )
             return None
 
-    def find_child_hwnd_recursive(self, parent_hwnd, window_class):
-        try:
-            hwnds = []
+    def find_child_hwnd_recursive(
+        self, parent_hwnd, window_class, window_name, visited
+    ):
+        if parent_hwnd in visited:
+            return None
 
-            def callback(hwnd, hwnds):
-                hwnd_window_class = win32gui.GetClassName(hwnd)
-                if window_class.split(":")[0] in hwnd_window_class:
-                    hwnds.append(hwnd)
-                else:
-                    child_hwnd = self.find_child_hwnd_recursive(hwnd, window_class)
-                    if child_hwnd:
-                        hwnds.append(child_hwnd)
+        visited.add(parent_hwnd)
+        hwnds = []
 
-            win32gui.EnumChildWindows(parent_hwnd, callback, hwnds)
-            return hwnds[0] if hwnds else None
-        except Exception as e:
-            print(f"Error in find_child_hwnd_recursive: {e}")
+        def callback(hwnd, extra):
+            hwnd_window_class = win32gui.GetClassName(hwnd)
+            hwnd_window_name = win32gui.GetWindowText(hwnd)
+            print(
+                f"Checking child hwnd: {hwnd}, Class: {hwnd_window_class}, Name: {hwnd_window_name}"
+            )
+            if (
+                window_class.split(":")[0] in hwnd_window_class
+                and window_name in hwnd_window_name
+            ):
+                hwnds.append(hwnd)
+            else:
+                child_hwnd = self.find_child_hwnd_recursive(
+                    hwnd, window_class, window_name, visited
+                )
+                if child_hwnd:
+                    hwnds.append(child_hwnd)
+
+        win32gui.EnumChildWindows(parent_hwnd, callback, None)
+        if hwnds:
+            print(f"Found matching child hwnds: {hwnds}")  # Debugging log
+            return hwnds[0]
+        else:
+            print(f"No matching child hwnd found under parent hwnd: {parent_hwnd}")
             return None
 
     def find_child_hwnd(self, parent_hwnd, window_class):
@@ -427,34 +444,26 @@ class MouseTracker(QWidget):
                 print(f"Invalid hwnd: {hwnd}")
                 return
 
-            # Redraw the window image with a red dot at the click position
-            self.update_image_with_click(hwnd, relative_x, relative_y)
-
             lParam = win32api.MAKELONG(relative_x, relative_y)
 
             print(f"Clicking at ({relative_x}, {relative_y})")
 
-            # 백그라운드에서 활성화
             win32gui.PostMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
             win32api.Sleep(125)
 
-            # 백그라운드 마우스 이동 이벤트 전송
             win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
             win32api.Sleep(125)
 
-            # 마우스 클릭 다운 이벤트 전송
             win32gui.PostMessage(
                 hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam
             )
-            win32api.Sleep(75)  # 클릭 유지 시간
+            win32api.Sleep(75)
 
-            # 마우스 클릭 업 이벤트 전송
             win32gui.PostMessage(
                 hwnd, win32con.WM_LBUTTONUP, win32con.MK_LBUTTON, lParam
             )
-            win32api.Sleep(75)  # 클릭 유지 시간
+            win32api.Sleep(75)
 
-            # 백그라운드 마우스 이동 이벤트 전송
             win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
             win32api.Sleep(125)
         except Exception as e:
@@ -484,7 +493,7 @@ class MouseTracker(QWidget):
 
     def update_speed_factor(self, value):
         try:
-            self.speed_factor = value / 50.0  # 기본 속도는 1.0, 0.02 ~ 2.0 배속 조절
+            self.speed_factor = value / 50.0
         except Exception as e:
             print(f"Error in update_speed_factor: {e}")
 
