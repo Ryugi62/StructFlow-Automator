@@ -76,6 +76,7 @@ class MouseTracker(QWidget):
         self.recording = False
         self.speed_factor = 1.0
         self.capture_thread = None
+        self.current_program_hwnd = win32gui.GetForegroundWindow()
 
         self.mouse_listener = mouse.Listener(
             on_move=self.on_move, on_click=self.on_click
@@ -145,6 +146,8 @@ class MouseTracker(QWidget):
         try:
             if pressed and self.recording:
                 hwnd = win32gui.WindowFromPoint((x, y))
+                if hwnd == self.current_program_hwnd:
+                    return
                 window_rect = win32gui.GetWindowRect(hwnd)
                 relative_x = x - window_rect[0]
                 relative_y = y - window_rect[1]
@@ -188,15 +191,6 @@ class MouseTracker(QWidget):
                 f"Target Window: {window_name} (hwnd: {hwnd}, class: {window_class})"
             )
 
-            target_info = {
-                "program": current_program,
-                "hwnd": hwnd,
-                "class": window_class,
-                "path": program_path,
-                "window_name": window_name,
-            }
-            pyperclip.copy(json.dumps(target_info))
-
             # Start capturing the target window's image
             if self.capture_thread is not None:
                 self.capture_thread.stop()
@@ -231,6 +225,8 @@ class MouseTracker(QWidget):
         try:
             x, y = self.current
             hwnd = win32gui.WindowFromPoint((x, y))
+            if hwnd == self.current_program_hwnd:
+                return
             window_rect = win32gui.GetWindowRect(hwnd)
             relative_x = x - window_rect[0]
             relative_y = y - window_rect[1]
