@@ -23,9 +23,16 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
 from pynput import keyboard, mouse
 import ctypes
+import logging
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
+
+logging.basicConfig(
+    filename="mouse_tracker.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 
 class ImageCaptureThread(QThread):
@@ -61,7 +68,7 @@ class ImageCaptureThread(QThread):
                 win32gui.ReleaseDC(self.hwnd, hwndDC)
                 time.sleep(0.1)
         except Exception as e:
-            print(f"Error in ImageCaptureThread: {e}")
+            logging.error(f"Error in ImageCaptureThread: {e}")
 
     def stop(self):
         self.running = False
@@ -142,7 +149,7 @@ class MouseTracker(QWidget):
             self.current = (x, y)
             self.update_current_target_label()
         except Exception as e:
-            print(f"Error in on_move: {e}")
+            logging.error(f"Error in on_move: {e}")
 
     def on_click(self, x, y, button, pressed):
         try:
@@ -166,7 +173,7 @@ class MouseTracker(QWidget):
                 window_name = win32gui.GetWindowText(hwnd) or "No Name"
                 window_class = win32gui.GetClassName(hwnd)
 
-                print(
+                logging.info(
                     f"Recording click event: Program: {current_program}, Window Name: {window_name}, Window Class: {window_class}"
                 )
 
@@ -182,7 +189,7 @@ class MouseTracker(QWidget):
                     }
                 )
         except Exception as e:
-            print(f"Error in on_click: {e}")
+            logging.error(f"Error in on_click: {e}")
 
     def on_press(self, key):
         try:
@@ -191,7 +198,7 @@ class MouseTracker(QWidget):
             elif key == keyboard.Key.f10:
                 self.play_script()
         except Exception as e:
-            print(f"Error in on_press: {e}")
+            logging.error(f"Error in on_press: {e}")
 
     @pyqtSlot(np.ndarray)
     def update_image_label(self, img):
@@ -213,7 +220,7 @@ class MouseTracker(QWidget):
             pixmap = QPixmap.fromImage(qimg)
             self.image_label.setPixmap(pixmap)
         except Exception as e:
-            print(f"Error in update_image_label: {e}")
+            logging.error(f"Error in update_image_label: {e}")
 
     def update_program_label(self, hwnd=None):
         try:
@@ -240,9 +247,8 @@ class MouseTracker(QWidget):
             self.target_label.setText(
                 f"Target Window: {window_name} (hwnd: {hwnd}, class: {window_class})"
             )
-
         except Exception as e:
-            print(f"Error in update_program_label: {e}")
+            logging.error(f"Error in update_program_label: {e}")
 
     def update_current_target_label(self):
         try:
@@ -257,7 +263,7 @@ class MouseTracker(QWidget):
                 f"Current Target Relative Position: ({relative_x}, {relative_y})"
             )
         except Exception as e:
-            print(f"Error in update_current_target_label: {e}")
+            logging.error(f"Error in update_current_target_label: {e}")
 
     def toggle_recording(self):
         try:
@@ -269,7 +275,7 @@ class MouseTracker(QWidget):
                 self.start_time = time.time()
                 self.click_events = []
         except Exception as e:
-            print(f"Error in toggle_recording: {e}")
+            logging.error(f"Error in toggle_recording: {e}")
 
     def save_script(self):
         try:
@@ -285,7 +291,7 @@ class MouseTracker(QWidget):
                 with open(filename, "w") as file:
                     json.dump(self.click_events, file)
         except Exception as e:
-            print(f"Error in save_script: {e}")
+            logging.error(f"Error in save_script: {e}")
 
     def load_script(self):
         try:
@@ -301,7 +307,7 @@ class MouseTracker(QWidget):
                 with open(filename, "r") as file:
                     self.click_events = json.load(file)
         except Exception as e:
-            print(f"Error in load_script: {e}")
+            logging.error(f"Error in load_script: {e}")
 
     def play_script(self):
         try:
@@ -313,17 +319,17 @@ class MouseTracker(QWidget):
                 relative_y = event["relative_y"]
                 hwnd = self.get_valid_hwnd(event)
                 if hwnd is None or hwnd == 0:
-                    print(f"Invalid hwnd for event: {event}")
+                    logging.warning(f"Invalid hwnd for event: {event}")
                     continue
                 t = event["time"]
-                print(
+                logging.info(
                     f"Clicking at ({relative_x}, {relative_y}) in {t - start_time:.2f}s"
                 )
                 time.sleep((t - start_time) * self.speed_factor)
                 self.send_click_event(relative_x, relative_y, hwnd)
                 start_time = t
         except Exception as e:
-            print(f"Error in play_script: {e}")
+            logging.error(f"Error in play_script: {e}")
 
     def get_valid_hwnd(self, event):
         hwnd = event.get("hwnd")
@@ -353,7 +359,7 @@ class MouseTracker(QWidget):
                     if proc.info["pid"] == pid and proc.info["name"] == program_name:
                         hwnd_window_class = win32gui.GetClassName(hwnd)
                         hwnd_window_name = win32gui.GetWindowText(hwnd)
-                        print(
+                        logging.debug(
                             f"Top-level hwnd: {hwnd}, Class: {hwnd_window_class}, Name: {hwnd_window_name}, PID: {pid}"
                         )
                         if (
@@ -370,10 +376,10 @@ class MouseTracker(QWidget):
 
         win32gui.EnumWindows(callback, None)
         if hwnds:
-            print(f"Found matching hwnds: {hwnds}")  # Debugging log
+            logging.debug(f"Found matching hwnds: {hwnds}")
             return hwnds[0]
         else:
-            print(
+            logging.warning(
                 f"No matching hwnd found for program: {program_name}, window class: {window_class}, window name: {window_name}"
             )
             return None
@@ -390,7 +396,7 @@ class MouseTracker(QWidget):
         def callback(hwnd, extra):
             hwnd_window_class = win32gui.GetClassName(hwnd)
             hwnd_window_name = win32gui.GetWindowText(hwnd)
-            print(
+            logging.debug(
                 f"Checking child hwnd: {hwnd}, Class: {hwnd_window_class}, Name: {hwnd_window_name}"
             )
             if (
@@ -407,46 +413,23 @@ class MouseTracker(QWidget):
 
         win32gui.EnumChildWindows(parent_hwnd, callback, None)
         if hwnds:
-            print(f"Found matching child hwnds: {hwnds}")  # Debugging log
+            logging.debug(f"Found matching child hwnds: {hwnds}")
             return hwnds[0]
         else:
-            print(f"No matching child hwnd found under parent hwnd: {parent_hwnd}")
+            logging.debug(
+                f"No matching child hwnd found under parent hwnd: {parent_hwnd}"
+            )
             return None
-
-    def find_child_hwnd(self, parent_hwnd, window_class):
-        try:
-            hwnds = []
-
-            def callback(hwnd, extra):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                    hwnd_window_class = win32gui.GetClassName(hwnd)
-                    if window_class.split(":")[0] in hwnd_window_class:
-                        hwnds.append(hwnd)
-
-            win32gui.EnumChildWindows(parent_hwnd, callback, None)
-            if hwnds:
-                return hwnds[0]
-            else:
-                return None
-        except Exception as e:
-            print(f"Error in find_child_hwnd: {e}")
-            return None
-
-    def find_parent_hwnd(child_hwnd):
-        parent_hwnd = win32gui.GetParent(child_hwnd)
-        if parent_hwnd == 0:
-            parent_hwnd = win32gui.GetAncestor(child_hwnd, win32con.GA_ROOT)
-        return parent_hwnd
 
     def send_click_event(self, relative_x, relative_y, hwnd):
         try:
             if not hwnd or not win32gui.IsWindow(hwnd):
-                print(f"Invalid hwnd: {hwnd}")
+                logging.warning(f"Invalid hwnd: {hwnd}")
                 return
 
             lParam = win32api.MAKELONG(relative_x, relative_y)
 
-            print(f"Clicking at ({relative_x}, {relative_y})")
+            logging.info(f"Clicking at ({relative_x}, {relative_y})")
 
             win32gui.PostMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
             win32api.Sleep(125)
@@ -467,35 +450,13 @@ class MouseTracker(QWidget):
             win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
             win32api.Sleep(125)
         except Exception as e:
-            print(f"Error in send_click_event: {e}")
-
-    def update_image_with_click(self, hwnd, relative_x, relative_y):
-        try:
-            window_rect = win32gui.GetWindowRect(hwnd)
-            width = window_rect[2] - window_rect[0]
-            height = window_rect[3] - window_rect[1]
-            hwndDC = win32gui.GetWindowDC(hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
-            saveDC.SelectObject(saveBitMap)
-            result = user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype="uint8")
-            img.shape = (height, width, 4)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-            cv2.circle(img, (relative_x, relative_y), 5, (255, 0, 0), -1)
-            self.update_image_label(img)
-        except Exception as e:
-            print(f"Error in update_image_with_click: {e}")
+            logging.error(f"Error in send_click_event: {e}")
 
     def update_speed_factor(self, value):
         try:
             self.speed_factor = value / 50.0
         except Exception as e:
-            print(f"Error in update_speed_factor: {e}")
+            logging.error(f"Error in update_speed_factor: {e}")
 
     def closeEvent(self, event):
         if self.capture_thread is not None:
@@ -511,4 +472,4 @@ if __name__ == "__main__":
         ex = MouseTracker()
         sys.exit(app.exec_())
     except Exception as e:
-        print(f"Error in main: {e}")
+        logging.error(f"Error in main: {e}")
