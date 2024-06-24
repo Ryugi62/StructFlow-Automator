@@ -372,7 +372,7 @@ class MouseTracker(QWidget):
                 process = psutil.Process(found_pid)
                 if process.name().lower() == program_name.lower():
                     class_name = win32gui.GetClassName(hwnd)
-                    window_text = win32gui.GetWindowText(hwnd)
+                    window_text = win32gui.GetWindowText(hwnd) or "No Name"
 
                     class_match = window_class in class_name if window_class else True
                     name_match = window_name in window_text if window_name else True
@@ -391,7 +391,8 @@ class MouseTracker(QWidget):
         win32gui.EnumWindows(callback, None)
         return hwnds
 
-    def find_child_windows(self, parent_hwnd, class_name=None, window_text=None):
+    @staticmethod
+    def find_child_windows(parent_hwnd, class_name=None, window_text=None):
         child_windows = []
 
         def enum_child_proc(hwnd, lParam):
@@ -423,6 +424,7 @@ class MouseTracker(QWidget):
             try:
                 process = psutil.Process(pid)
                 if process.name().lower() == event["program_name"].lower():
+                    logging.debug(f"Using cached hwnd: {hwnd}")
                     return hwnd
             except psutil.NoSuchProcess:
                 pass
@@ -434,6 +436,7 @@ class MouseTracker(QWidget):
                 try:
                     process = psutil.Process(pid)
                     if process.name().lower() == event["program_name"].lower():
+                        logging.debug(f"Using cached hwnd from cache: {cached_hwnd}")
                         return cached_hwnd
                 except psutil.NoSuchProcess:
                     pass
@@ -444,8 +447,18 @@ class MouseTracker(QWidget):
         if hwnds:
             hwnd = hwnds[0]
             self.hwnd_cache[cache_key] = hwnd
+            logging.debug(f"Using found hwnd: {hwnd}")
             return hwnd
 
+        # 윈도우 이름이 없거나 찾지 못한 경우
+        hwnds = self.find_hwnd(event["program_name"], event["window_class"])
+        if hwnds:
+            hwnd = hwnds[0]
+            self.hwnd_cache[cache_key] = hwnd
+            logging.debug(f"Using found hwnd with class only: {hwnd}")
+            return hwnd
+
+        logging.warning(f"No valid hwnd found for event: {event}")
         return None
 
     def send_click_event(self, relative_x, relative_y, hwnd):
