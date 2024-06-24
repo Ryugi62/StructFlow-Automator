@@ -38,14 +38,19 @@ logging.basicConfig(
 class ImageCaptureThread(QThread):
     image_captured = pyqtSignal(np.ndarray)
 
-    def __init__(self, hwnd):
+    def __init__(self, hwnd, exclude_hwnd):
         super().__init__()
         self.hwnd = hwnd
+        self.exclude_hwnd = exclude_hwnd
         self.running = True
 
     def run(self):
         try:
             while self.running:
+                if self.hwnd == self.exclude_hwnd:
+                    time.sleep(0.1)
+                    continue
+
                 window_rect = win32gui.GetWindowRect(self.hwnd)
                 width = window_rect[2] - window_rect[0]
                 height = window_rect[3] - window_rect[1]
@@ -108,7 +113,7 @@ class MouseTracker(QWidget):
         self.target_label.setWordWrap(True)
         self.current_target_label = QLabel("Current Target Relative Position: (0, 0)")
         self.image_label = QLabel()
-        self.image_label.setMaximumSize(1000, 800)
+        self.image_label.setMaximumSize(640, 480)
         self.image_label.setStyleSheet("background-color: white;")
 
         self.layout.addWidget(self.program_label)
@@ -148,6 +153,15 @@ class MouseTracker(QWidget):
         try:
             self.current = (x, y)
             self.update_current_target_label()
+            hwnd = win32gui.WindowFromPoint((x, y))
+            if hwnd != self.current_program_hwnd and hwnd != 0:
+                if self.capture_thread is not None:
+                    self.capture_thread.stop()
+                self.capture_thread = ImageCaptureThread(
+                    hwnd, self.current_program_hwnd
+                )
+                self.capture_thread.image_captured.connect(self.update_image_label)
+                self.capture_thread.start()
         except Exception as e:
             logging.error(f"Error in on_move: {e}")
 
@@ -203,7 +217,7 @@ class MouseTracker(QWidget):
     @pyqtSlot(np.ndarray)
     def update_image_label(self, img):
         try:
-            max_width, max_height = 1000, 800
+            max_width, max_height = 640, 480
             height, width, channel = img.shape
             if width > max_width or height > max_height:
                 aspect_ratio = width / height
