@@ -497,6 +497,7 @@ class MouseTracker(QWidget):
 
             # Send WM_MOUSEHOVER to ensure hover is processed
             win32gui.PostMessage(hwnd, 0x02A1, 0, lParam)
+            time.sleep(0.5)  # Wait to ensure hover is processed
 
             # Send WM_LBUTTONDOWN and WM_LBUTTONUP to simulate click
             win32gui.PostMessage(
