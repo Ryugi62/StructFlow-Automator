@@ -22,8 +22,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
 from pynput import keyboard, mouse
-import ctypes
 import logging
+import ctypes
+from ctypes import wintypes
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
@@ -36,6 +37,15 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
     ],
 )
+
+
+class TRACKMOUSEEVENT(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("hwndTrack", wintypes.HWND),
+        ("dwHoverTime", wintypes.DWORD),
+    ]
 
 
 class ImageCaptureThread(QThread):
@@ -341,6 +351,8 @@ class MouseTracker(QWidget):
                 f"Clicking at ({relative_x}, {relative_y}) in {t - start_time:.2f}s"
             )
             time.sleep((t - start_time) * self.speed_factor)
+            # Update the image label with the captured click location
+            self.capture_click_image(hwnd, relative_x, relative_y)
             self.send_click_event(relative_x, relative_y, hwnd)
             start_time = t
 
@@ -469,20 +481,72 @@ class MouseTracker(QWidget):
         lParam = win32api.MAKELONG(relative_x, relative_y)
         logging.info(f"Clicking at ({relative_x}, {relative_y})")
 
-        win32gui.PostMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
-        time.sleep(0.125)
+        # Track mouse event to ensure hover is registered
+        tme = TRACKMOUSEEVENT(
+            cbSize=ctypes.sizeof(TRACKMOUSEEVENT),
+            dwFlags=0x00000002,  # TME_HOVER
+            hwndTrack=hwnd,
+            dwHoverTime=1,
+        )  # HOVER_DEFAULT
+        ctypes.windll.user32.TrackMouseEvent(ctypes.byref(tme))
 
+        # Send WM_MOUSEMOVE to simulate hover
         win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
-        time.sleep(0.125)
+        time.sleep(0.2)  # Wait to simulate hover
 
+        # Send WM_MOUSEHOVER to ensure hover is processed
+        win32gui.PostMessage(hwnd, 0x02A1, 0, lParam)
+        time.sleep(0.2)  # Wait to ensure hover is processed
+
+        # Send WM_LBUTTONDOWN and WM_LBUTTONUP to simulate click
         win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam)
-        time.sleep(0.075)
+        time.sleep(0.075)  # Small delay to mimic actual click
+        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
+        time.sleep(0.1)  # Small delay to ensure the click is processed
 
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, win32con.MK_LBUTTON, lParam)
-        time.sleep(0.075)
+        # Update the image label with the captured click location
+        self.capture_click_image(hwnd, relative_x, relative_y)
 
-        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
-        time.sleep(0.125)
+    def capture_click_image(self, hwnd, relative_x, relative_y):
+        try:
+            window_rect = win32gui.GetWindowRect(hwnd)
+            absolute_x = window_rect[0] + relative_x
+            absolute_y = window_rect[1] + relative_y
+
+            hwndDC = win32gui.GetWindowDC(hwnd)
+            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+            saveDC = mfcDC.CreateCompatibleDC()
+            saveBitMap = win32ui.CreateBitmap()
+            saveBitMap.CreateCompatibleBitmap(
+                mfcDC, window_rect[2] - window_rect[0], window_rect[3] - window_rect[1]
+            )
+            saveDC.SelectObject(saveBitMap)
+            user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
+            bmpinfo = saveBitMap.GetInfo()
+            bmpstr = saveBitMap.GetBitmapBits(True)
+            img = np.frombuffer(bmpstr, dtype="uint8")
+            img.shape = (
+                window_rect[3] - window_rect[1],
+                window_rect[2] - window_rect[0],
+                4,
+            )
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+
+            # Draw a circle at the click location
+            cv2.circle(img, (relative_x, relative_y), 10, (0, 255, 0), 2)
+
+            self.update_image_label(img)
+
+        except Exception as e:
+            logging.error(f"Error in capture_click_image: {e}")
+        finally:
+            try:
+                win32gui.DeleteObject(saveBitMap.GetHandle())
+                saveDC.DeleteDC()
+                mfcDC.DeleteDC()
+                win32gui.ReleaseDC(hwnd, hwndDC)
+            except Exception as e:
+                logging.error(f"Error cleaning up resources: {e}")
 
     def update_speed_factor(self, value):
         try:
