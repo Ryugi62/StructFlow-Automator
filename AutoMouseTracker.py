@@ -481,31 +481,35 @@ class MouseTracker(QWidget):
         lParam = win32api.MAKELONG(relative_x, relative_y)
         logging.info(f"Clicking at ({relative_x}, {relative_y})")
 
-        # Track mouse event to ensure hover is registered
-        tme = TRACKMOUSEEVENT(
-            cbSize=ctypes.sizeof(TRACKMOUSEEVENT),
-            dwFlags=0x00000002,  # TME_HOVER
-            hwndTrack=hwnd,
-            dwHoverTime=1,
-        )  # HOVER_DEFAULT
-        ctypes.windll.user32.TrackMouseEvent(ctypes.byref(tme))
+        try:
+            # Set up hover tracking
+            tme = TRACKMOUSEEVENT(
+                cbSize=ctypes.sizeof(TRACKMOUSEEVENT),
+                dwFlags=0x00000001,  # TME_HOVER
+                hwndTrack=hwnd,
+                dwHoverTime=400,
+            )  # Hover time in milliseconds
+            ctypes.windll.user32.TrackMouseEvent(ctypes.byref(tme))
 
-        # Send WM_MOUSEMOVE to simulate hover
-        win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
-        time.sleep(0.2)  # Wait to simulate hover
+            # Send WM_MOUSEMOVE to simulate hover
+            win32gui.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
+            time.sleep(0.5)  # Wait to simulate hover
 
-        # Send WM_MOUSEHOVER to ensure hover is processed
-        win32gui.PostMessage(hwnd, 0x02A1, 0, lParam)
-        time.sleep(0.2)  # Wait to ensure hover is processed
+            # Send WM_MOUSEHOVER to ensure hover is processed
+            win32gui.PostMessage(hwnd, 0x02A1, 0, lParam)
 
-        # Send WM_LBUTTONDOWN and WM_LBUTTONUP to simulate click
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam)
-        time.sleep(0.075)  # Small delay to mimic actual click
-        win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
-        time.sleep(0.1)  # Small delay to ensure the click is processed
+            # Send WM_LBUTTONDOWN and WM_LBUTTONUP to simulate click
+            win32gui.PostMessage(
+                hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam
+            )
+            time.sleep(0.1)  # Small delay to mimic actual click
+            win32gui.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
+            time.sleep(0.1)  # Small delay to ensure the click is processed
 
-        # Update the image label with the captured click location
-        self.capture_click_image(hwnd, relative_x, relative_y)
+            # Update the image label with the captured click location
+            self.capture_click_image(hwnd, relative_x, relative_y)
+        except Exception as e:
+            logging.error(f"Failed to send click event: {e}")
 
     def capture_click_image(self, hwnd, relative_x, relative_y):
         try:
