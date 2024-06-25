@@ -33,18 +33,15 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("mouse_tracker.log"),
-        # logging.StreamHandler(sys.stdout),
+        logging.StreamHandler(sys.stdout),
     ],
 )
 
 
-class TRACKMOUSEEVENT(ctypes.Structure):
-    _fields_ = [
-        ("cbSize", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("hwndTrack", wintypes.HWND),
-        ("dwHoverTime", wintypes.DWORD),
-    ]
+# Define necessary constants
+WM_MOUSEMOVE = 0x0200
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
 
 
 class ImageCaptureThread(QThread):
@@ -298,6 +295,7 @@ class MouseTracker(QWidget):
             time.sleep((event["time"] - start_time) * self.speed_factor)
             self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
             start_time = event["time"]
+            QApplication.processEvents()
 
     def get_valid_hwnd(self, event):
         cache_key = (
@@ -419,37 +417,40 @@ class MouseTracker(QWidget):
             logging.warning(f"Invalid hwnd: {hwnd}")
             return
 
-        # Get the absolute coordinates for the target window
-        window_rect = win32gui.GetWindowRect(hwnd)
-        absolute_x = window_rect[0] + relative_x
-        absolute_y = window_rect[1] + relative_y
         lParam = win32api.MAKELONG(relative_x, relative_y)
-        logging.info(
-            f"Clicking at ({relative_x}, {relative_y}) on hwnd {hwnd} with absolute position ({absolute_x}, {absolute_y})"
-        )
 
         try:
-            # 백그라운드로 마우스 이동
-            win32gui.SendMessage(
-                hwnd, win32con.WM_MOUSEMOVE, win32con.MK_LBUTTON, lParam
-            )
+            self.capture_click_image(hwnd, relative_x, relative_y)
             time.sleep(0.1)
 
-            # Hover (small delay)
-            win32gui.SendMessage(hwnd, win32con.WM_MOUSEHOVER, 0, lParam)
-            time.sleep(0.5)
+            # Activate the window in the background
+            logging.debug("Activating window...")
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
+            time.sleep(0.1)  # Short wait for the window to activate
 
-            # Send WM_LBUTTONDOWN
-            win32gui.SendMessage(
+            # Send WM_MOUSEMOVE to hover over the target
+            logging.debug("Sending mouse move event for hover...")
+            win32api.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0, lParam)
+            time.sleep(0.1)  # Wait for hover effect to be processed
+
+            # Activate the window in the background
+            logging.debug("Activating window...")
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
+            time.sleep(0.1)  # Short wait for the window to activate
+
+            # Send WM_LBUTTONDOWN for mouse down
+            logging.debug("Sending mouse down event...")
+            win32api.PostMessage(
                 hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam
             )
-            time.sleep(0.05)
+            time.sleep(0.05)  # Short wait after pressing the mouse button
 
-            # Send WM_LBUTTONUP
-            win32gui.SendMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
-            time.sleep(0.1)
+            # Send WM_LBUTTONUP for mouse up
+            logging.debug("Sending mouse up event...")
+            win32api.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
+            time.sleep(0.05)  # Short wait after releasing the mouse button
 
-            self.capture_click_image(hwnd, relative_x, relative_y)
+            logging.debug("Click event sent successfully.")
         except Exception as e:
             logging.error(f"Failed to send click event: {e}")
 
@@ -480,6 +481,7 @@ class MouseTracker(QWidget):
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(hwnd, hwndDC)
+            QApplication.processEvents()
 
     def update_speed_factor(self, value):
         self.speed_factor = value / 50.0
