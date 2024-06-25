@@ -63,7 +63,7 @@ class ImageCaptureThread(QThread):
                 time.sleep(0.1)
                 continue
             try:
-                img = MouseTracker.capture_window_image(self.hwnd)
+                img = self.capture_window_image(self.hwnd)
                 if img is not None:
                     self.image_captured.emit(img)
                 time.sleep(0.5)
@@ -73,6 +73,34 @@ class ImageCaptureThread(QThread):
     def stop(self):
         self.running = False
         self.wait()
+
+    @staticmethod
+    def capture_window_image(hwnd):
+        try:
+            window_rect = win32gui.GetWindowRect(hwnd)
+            width, height = (
+                window_rect[2] - window_rect[0],
+                window_rect[3] - window_rect[1],
+            )
+            hwndDC = win32gui.GetWindowDC(hwnd)
+            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+            saveDC = mfcDC.CreateCompatibleDC()
+            saveBitMap = win32ui.CreateBitmap()
+            saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
+            saveDC.SelectObject(saveBitMap)
+            user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
+            bmpinfo = saveBitMap.GetInfo()
+            bmpstr = saveBitMap.GetBitmapBits(True)
+            img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+            win32gui.DeleteObject(saveBitMap.GetHandle())
+            saveDC.DeleteDC()
+            mfcDC.DeleteDC()
+            win32gui.ReleaseDC(hwnd, hwndDC)
+            return img
+        except Exception as e:
+            logging.error(f"Error capturing window image: {e}")
+            return None
 
 
 class MouseTracker(QWidget):
@@ -394,27 +422,16 @@ class MouseTracker(QWidget):
             self.capture_click_image(hwnd, relative_x, relative_y)
             time.sleep(0.1)
 
-            # Activate the window in the background
-            logging.debug("Activating window...")
-            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
-            time.sleep(0.1)  # Short wait for the window to activate
+            self.activate_window(hwnd)
+            self.simulate_mouse_event(hwnd, lParam, WM_MOUSEMOVE)
+            time.sleep(0.1)
 
-            # Explicitly send WM_MOUSEMOVE to ensure hover
-            logging.debug("Sending explicit mouse move event...")
-            win32api.PostMessage(hwnd, WM_MOUSEMOVE, 0, lParam)
-            time.sleep(0.1)  # Wait for hover effect to be processed
+            self.activate_window(hwnd)
+            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+            time.sleep(0.05)
 
-            # Send WM_LBUTTONDOWN for mouse down
-            logging.debug("Sending mouse down event...")
-            win32api.PostMessage(
-                hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam
-            )
-            time.sleep(0.05)  # Short wait after pressing the mouse button
-
-            # Send WM_LBUTTONUP for mouse up
-            logging.debug("Sending mouse up event...")
-            win32api.PostMessage(hwnd, win32con.WM_LBUTTONUP, 0, lParam)
-            time.sleep(0.05)  # Short wait after releasing the mouse button
+            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+            time.sleep(0.05)
 
             logging.debug("Click event sent successfully.")
         except Exception as e:
@@ -436,34 +453,6 @@ class MouseTracker(QWidget):
     @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
         win32api.PostMessage(hwnd, event_type, 0, lParam)
-
-    @staticmethod
-    def capture_window_image(hwnd):
-        try:
-            window_rect = win32gui.GetWindowRect(hwnd)
-            width, height = (
-                window_rect[2] - window_rect[0],
-                window_rect[3] - window_rect[1],
-            )
-            hwndDC = win32gui.GetWindowDC(hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
-            saveDC.SelectObject(saveBitMap)
-            user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(hwnd, hwndDC)
-            return img
-        except Exception as e:
-            logging.error(f"Error capturing window image: {e}")
-            return None
 
     def update_speed_factor(self, value):
         self.speed_factor = value / 50.0
