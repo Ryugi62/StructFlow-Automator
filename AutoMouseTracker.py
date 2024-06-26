@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QFileDialog,
     QSlider,
+    QMessageBox,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
@@ -74,8 +75,7 @@ class ImageCaptureThread(QThread):
         self.running = False
         self.wait()
 
-    @staticmethod
-    def capture_window_image(hwnd):
+    def capture_window_image(self, hwnd):
         try:
             window_rect = win32gui.GetWindowRect(hwnd)
             width, height = (
@@ -104,10 +104,11 @@ class ImageCaptureThread(QThread):
 
 
 class MouseTracker(QWidget):
+
     def __init__(self):
         super().__init__()
+        self.initVariables()  # Initialize variables first
         self.initUI()
-        self.initVariables()
         self.initListeners()
 
     def initUI(self):
@@ -153,14 +154,20 @@ class MouseTracker(QWidget):
         self.setGeometry(100, 100, 800, 600)
         self.show()
 
+        # Create ImageCaptureThread instance and connect signal
+        self.capture_thread = ImageCaptureThread(
+            self.current_program_hwnd, self.winId()
+        )
+        self.capture_thread.image_captured.connect(self.update_image_label)
+        self.capture_thread.start()
+
     def initVariables(self):
         self.current = (0, 0)
         self.click_events = []
         self.recording = False
         self.speed_factor = 1.0
-        self.capture_thread = None
         self.current_program_hwnd = win32gui.GetForegroundWindow()
-        self.hwnd_cache = {}
+        self.capture_thread = None
 
     def initListeners(self):
         self.mouse_listener = mouse.Listener(
@@ -178,8 +185,12 @@ class MouseTracker(QWidget):
         self.update_current_target_label()
 
     def on_click(self, x, y, button, pressed):
-        if pressed and self.recording:
-            self.record_click_event(x, y)
+        if pressed:
+            hwnd = win32gui.WindowFromPoint((x, y))
+            if hwnd:
+                self.print_window_hierarchy(hwnd)
+            if pressed and self.recording:
+                self.record_click_event(x, y)
 
     def on_press(self, key):
         if key == keyboard.Key.f9:
@@ -210,9 +221,9 @@ class MouseTracker(QWidget):
                 "relative_x": relative_x,
                 "relative_y": relative_y,
                 "program_name": current_program,
+                "program_path": program_path,  # Store the program path
                 "window_name": window_name,
                 "window_class": window_class,
-                "hwnd": hwnd,
                 "depth": depth,
                 "time": time.time() - self.start_time,
             }
@@ -308,57 +319,61 @@ class MouseTracker(QWidget):
             return
         start_time = self.click_events[0]["time"]
         for event in self.click_events:
-            hwnd = self.get_valid_hwnd(event)
-            if hwnd is None or hwnd == 0:
-                logging.warning(f"Invalid hwnd for event: {event}")
-                continue
-            time.sleep((event["time"] - start_time) * self.speed_factor)
-            self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
-            start_time = event["time"]
-            QApplication.processEvents()
+            try:
+                time.sleep((event["time"] - start_time) * self.speed_factor)
+                self.send_click_event(
+                    event["relative_x"], event["relative_y"], self.current_program_hwnd
+                )
+                start_time = event["time"]
+                QApplication.processEvents()
+                # Click 후 대기
+                time.sleep(0.5)
+                # 대기 후 hwnd 탐색
+                hwnd = self.find_target_hwnd(event)
+                if hwnd is None or hwnd == 0:
+                    logging.warning(f"Invalid hwnd for event: {event}")
+                    continue
+                self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
+            except RuntimeError as e:
+                logging.error(f"Error finding target hwnd: {e}")
+                self.show_error_message(str(e))
+                return
 
-    def get_valid_hwnd(self, event):
-        cache_key = (
-            event["program_name"],
-            event["window_class"],
-            event["window_name"],
-            event["depth"],
-        )
-        hwnd = event.get("hwnd")
-        if hwnd and win32gui.IsWindow(hwnd):
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            if self.is_valid_process(pid, event["program_name"]):
-                return hwnd
-
-        if cache_key in self.hwnd_cache:
-            cached_hwnd = self.hwnd_cache[cache_key]
-            if win32gui.IsWindow(cached_hwnd):
-                _, pid = win32process.GetWindowThreadProcessId(cached_hwnd)
-                if self.is_valid_process(pid, event["program_name"]):
-                    return cached_hwnd
-
+    def find_target_hwnd(self, event):
         hwnds = self.find_hwnd(
             event["program_name"],
             event["window_class"],
             event["window_name"],
             event["depth"],
+            event["program_path"],  # Use the stored program path
         )
+
+        print(f"Finding hwnd for event: {event}")
+        print(f"Found hwnds: {hwnds}")
+
         if hwnds:
-            hwnd = hwnds[0]
-            self.hwnd_cache[cache_key] = hwnd
-            return hwnd
+            return hwnds[0]
 
         logging.warning(f"No valid hwnd found for event: {event}")
         return None
 
-    def is_valid_process(self, pid, program_name):
+    def is_valid_process(self, pid, program_name, program_path=None):
         try:
             process = psutil.Process(pid)
+            if program_path:
+                return process.exe().lower() == program_path.lower()
             return process.name().lower() == program_name.lower()
         except psutil.NoSuchProcess:
             return False
 
-    def find_hwnd(self, program_name, window_class=None, window_name=None, depth=0):
+    def find_hwnd(
+        self,
+        program_name,
+        window_class=None,
+        window_name=None,
+        depth=0,
+        program_path=None,
+    ):
         hwnds = []
 
         def callback(hwnd, _):
@@ -368,7 +383,7 @@ class MouseTracker(QWidget):
             if current_depth > depth:
                 return True
             _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-            if self.is_valid_process(found_pid, program_name):
+            if self.is_valid_process(found_pid, program_name, program_path):
                 class_name = win32gui.GetClassName(hwnd)
                 window_text = win32gui.GetWindowText(hwnd)
                 class_match = window_class in class_name if window_class else True
@@ -380,6 +395,34 @@ class MouseTracker(QWidget):
                         hwnd, window_class, window_name, current_depth + 1
                     )
                 )
+            return True
+
+        win32gui.EnumWindows(callback, None)
+
+        if not hwnds:
+            hwnds = self.find_hwnd_top_level(
+                program_name, window_class, window_name, program_path
+            )
+
+        if not hwnds:
+            raise RuntimeError("No valid hwnd found at the top level or in children")
+
+        return hwnds
+
+    def find_hwnd_top_level(
+        self, program_name, window_class=None, window_name=None, program_path=None
+    ):
+        hwnds = []
+
+        def callback(hwnd, _):
+            _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+            if self.is_valid_process(found_pid, program_name, program_path):
+                class_name = win32gui.GetClassName(hwnd)
+                window_text = win32gui.GetWindowText(hwnd)
+                class_match = window_class in class_name if window_class else True
+                name_match = window_name in window_text if window_name else True
+                if class_match and name_match:
+                    hwnds.append(hwnd)
             return True
 
         win32gui.EnumWindows(callback, None)
@@ -439,7 +482,7 @@ class MouseTracker(QWidget):
 
     def capture_click_image(self, hwnd, relative_x, relative_y):
         try:
-            img = self.capture_window_image(hwnd)
+            img = self.capture_thread.capture_window_image(hwnd)
             if img is not None:
                 cv2.circle(img, (relative_x, relative_y), 10, (0, 255, 0), 2)
                 self.update_image_label(img)
@@ -463,6 +506,33 @@ class MouseTracker(QWidget):
         self.mouse_listener.stop()
         self.keyboard_listener.stop()
         super().closeEvent(event)
+
+    @pyqtSlot(str)
+    def show_error_message(self, message):
+        QMessageBox.critical(self, "Error", message)
+
+    def print_window_hierarchy(self, hwnd):
+        hierarchy = self.find_window_hierarchy(hwnd)
+        self.display_window_hierarchy(hierarchy)
+
+    def find_window_hierarchy(self, hwnd):
+        hierarchy = []
+        current_hwnd = hwnd
+
+        while current_hwnd:
+            window_title = win32gui.GetWindowText(current_hwnd)
+            window_class = win32gui.GetClassName(current_hwnd)
+            hierarchy.append((window_title, window_class, current_hwnd))
+            current_hwnd = win32gui.GetParent(current_hwnd)
+
+        return hierarchy[::-1]
+
+    def display_window_hierarchy(self, hierarchy):
+        indent = "   "
+        for i, (title, class_name, hwnd) in enumerate(hierarchy):
+            print(
+                f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
+            )
 
 
 if __name__ == "__main__":
