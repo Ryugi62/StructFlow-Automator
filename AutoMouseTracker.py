@@ -465,8 +465,8 @@ class MouseTracker(QWidget):
             self.capture_click_image(hwnd, relative_x, relative_y)
             time.sleep(0.1)
 
-            self.activate_window(hwnd)
             self.simulate_mouse_event(hwnd, lParam, WM_MOUSEMOVE)
+            self.activate_window(hwnd)
             time.sleep(0.1)
 
             self.activate_window(hwnd)
