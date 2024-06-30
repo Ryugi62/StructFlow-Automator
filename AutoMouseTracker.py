@@ -42,7 +42,6 @@ logging.basicConfig(
     format=LOG_FORMAT,
     handlers=[
         logging.FileHandler(LOG_FILE),
-        # logging.StreamHandler(sys.stdout),
     ],
 )
 
@@ -107,7 +106,7 @@ class MouseTracker(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.initVariables()  # Initialize variables first
+        self.initVariables()
         self.initUI()
         self.initListeners()
 
@@ -154,7 +153,6 @@ class MouseTracker(QWidget):
         self.setGeometry(100, 100, 800, 600)
         self.show()
 
-        # Create ImageCaptureThread instance and connect signal
         self.capture_thread = ImageCaptureThread(
             self.current_program_hwnd, self.winId()
         )
@@ -221,7 +219,7 @@ class MouseTracker(QWidget):
                 "relative_x": relative_x,
                 "relative_y": relative_y,
                 "program_name": current_program,
-                "program_path": program_path,  # Store the program path
+                "program_path": program_path,
                 "window_name": window_name,
                 "window_class": window_class,
                 "depth": depth,
@@ -317,27 +315,38 @@ class MouseTracker(QWidget):
     def play_script(self):
         if not self.click_events:
             return
-        start_time = self.click_events[0]["time"]
-        for event in self.click_events:
-            try:
-                time.sleep((event["time"] - start_time) * self.speed_factor)
-                self.send_click_event(
-                    event["relative_x"], event["relative_y"], self.current_program_hwnd
-                )
-                start_time = event["time"]
-                QApplication.processEvents()
-                # Click 후 대기
-                time.sleep(0.5)
-                # 대기 후 hwnd 탐색
+
+        self.record_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.load_button.setEnabled(False)
+        self.play_button.setEnabled(False)
+
+        try:
+            start_time = self.click_events[0]["time"]
+            last_event_time = start_time
+
+            for event in self.click_events:
+                elapsed_time = (event["time"] - last_event_time) * self.speed_factor
+                if elapsed_time > 0:
+                    time.sleep(elapsed_time)
+                last_event_time = event["time"]
+
                 hwnd = self.find_target_hwnd(event)
                 if hwnd is None or hwnd == 0:
                     logging.warning(f"Invalid hwnd for event: {event}")
                     continue
+
                 self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
-            except RuntimeError as e:
-                logging.error(f"Error finding target hwnd: {e}")
-                self.show_error_message(str(e))
-                return
+                QApplication.processEvents()  # Update the UI
+
+        except RuntimeError as e:
+            logging.error(f"Error playing script: {e}")
+            self.show_error_message(str(e))
+        finally:
+            self.record_button.setEnabled(True)
+            self.save_button.setEnabled(True)
+            self.load_button.setEnabled(True)
+            self.play_button.setEnabled(True)
 
     def find_target_hwnd(self, event):
         hwnds = self.find_hwnd(
@@ -345,11 +354,8 @@ class MouseTracker(QWidget):
             event["window_class"],
             event["window_name"],
             event["depth"],
-            event["program_path"],  # Use the stored program path
+            event["program_path"],
         )
-
-        print(f"Finding hwnd for event: {event}")
-        print(f"Found hwnds: {hwnds}")
 
         if hwnds:
             return hwnds[0]
@@ -462,9 +468,6 @@ class MouseTracker(QWidget):
         lParam = win32api.MAKELONG(relative_x, relative_y)
 
         try:
-            self.capture_click_image(hwnd, relative_x, relative_y)
-            time.sleep(0.1)
-
             self.simulate_mouse_event(hwnd, lParam, WM_MOUSEMOVE)
             self.activate_window(hwnd)
             time.sleep(0.1)
@@ -480,25 +483,19 @@ class MouseTracker(QWidget):
         except Exception as e:
             logging.error(f"Failed to send click event: {e}")
 
-    def capture_click_image(self, hwnd, relative_x, relative_y):
-        try:
-            img = self.capture_thread.capture_window_image(hwnd)
-            if img is not None:
-                cv2.circle(img, (relative_x, relative_y), 10, (0, 255, 0), 2)
-                self.update_image_label(img)
-        except Exception as e:
-            logging.error(f"Error in capture_click_image: {e}")
-
     def activate_window(self, hwnd):
-        win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
-        time.sleep(0.1)
+        try:
+            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
+            time.sleep(0.05)
+        except Exception as e:
+            logging.error(f"Failed to activate window: {e}")
 
     @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
         win32api.PostMessage(hwnd, event_type, 0, lParam)
 
     def update_speed_factor(self, value):
-        self.speed_factor = value / 50.0
+        self.speed_factor = max(0.1, value / 50.0)
 
     def closeEvent(self, event):
         if self.capture_thread is not None:
