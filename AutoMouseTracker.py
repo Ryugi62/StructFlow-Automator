@@ -31,18 +31,13 @@ from pynput import keyboard, mouse
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
-
-# Logging configuration
-LOG_LEVEL = logging.DEBUG
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 LOG_FILE = "mouse_tracker.log"
 
+# Logging configuration
 logging.basicConfig(
-    level=LOG_LEVEL,
-    format=LOG_FORMAT,
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-    ],
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE)],
 )
 
 user32 = ctypes.windll.user32
@@ -106,11 +101,12 @@ class MouseTracker(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.initVariables()
-        self.initUI()
-        self.initListeners()
+        self.init_variables()
+        self.init_ui()
+        self.init_listeners()
+        self.init_capture_thread()
 
-    def initUI(self):
+    def init_ui(self):
         self.layout = QVBoxLayout()
         self.program_label = QLabel("Current Program: None")
         self.program_label.setWordWrap(True)
@@ -153,13 +149,7 @@ class MouseTracker(QWidget):
         self.setGeometry(100, 100, 800, 600)
         self.show()
 
-        self.capture_thread = ImageCaptureThread(
-            self.current_program_hwnd, self.winId()
-        )
-        self.capture_thread.image_captured.connect(self.update_image_label)
-        self.capture_thread.start()
-
-    def initVariables(self):
+    def init_variables(self):
         self.current = (0, 0)
         self.click_events = []
         self.recording = False
@@ -167,7 +157,7 @@ class MouseTracker(QWidget):
         self.current_program_hwnd = win32gui.GetForegroundWindow()
         self.capture_thread = None
 
-    def initListeners(self):
+    def init_listeners(self):
         self.mouse_listener = mouse.Listener(
             on_move=self.on_move, on_click=self.on_click
         )
@@ -177,6 +167,13 @@ class MouseTracker(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_program_label)
         self.timer.start(1000)
+
+    def init_capture_thread(self):
+        self.capture_thread = ImageCaptureThread(
+            self.current_program_hwnd, self.winId()
+        )
+        self.capture_thread.image_captured.connect(self.update_image_label)
+        self.capture_thread.start()
 
     def on_move(self, x, y):
         self.current = (x, y)
@@ -316,10 +313,7 @@ class MouseTracker(QWidget):
         if not self.click_events:
             return
 
-        self.record_button.setEnabled(False)
-        self.save_button.setEnabled(False)
-        self.load_button.setEnabled(False)
-        self.play_button.setEnabled(False)
+        self.set_buttons_enabled(False)
 
         try:
             start_time = self.click_events[0]["time"]
@@ -343,10 +337,13 @@ class MouseTracker(QWidget):
             logging.error(f"Error playing script: {e}")
             self.show_error_message(str(e))
         finally:
-            self.record_button.setEnabled(True)
-            self.save_button.setEnabled(True)
-            self.load_button.setEnabled(True)
-            self.play_button.setEnabled(True)
+            self.set_buttons_enabled(True)
+
+    def set_buttons_enabled(self, enabled):
+        self.record_button.setEnabled(enabled)
+        self.save_button.setEnabled(enabled)
+        self.load_button.setEnabled(enabled)
+        self.play_button.setEnabled(enabled)
 
     def find_target_hwnd(self, event):
         hwnds = self.find_hwnd(
@@ -356,7 +353,6 @@ class MouseTracker(QWidget):
             event["depth"],
             event["program_path"],
         )
-
         if hwnds:
             return hwnds[0]
 
@@ -472,7 +468,6 @@ class MouseTracker(QWidget):
             self.activate_window(hwnd)
             time.sleep(0.1)
 
-            self.activate_window(hwnd)
             self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
             time.sleep(0.05)
 
