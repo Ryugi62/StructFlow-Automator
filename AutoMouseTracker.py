@@ -4,7 +4,6 @@ import time
 import logging
 import ctypes
 from ctypes import wintypes
-
 import numpy as np
 import cv2
 import psutil
@@ -27,6 +26,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
 from pynput import keyboard, mouse
+import logging.handlers  # 추가
+
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -34,15 +35,19 @@ WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 LOG_FILE = "mouse_tracker.log"
 
-# Logging configuration
+# Logging configuration 수정
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE)],
+    handlers=[logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],  # 수정
 )
 
-user32 = ctypes.windll.user32
 
+
+
+
+
+user32 = ctypes.windll.user32
 
 class ImageCaptureThread(QThread):
     image_captured = pyqtSignal(np.ndarray)
@@ -62,7 +67,7 @@ class ImageCaptureThread(QThread):
                 img = self.capture_window_image(self.hwnd)
                 if img is not None:
                     self.image_captured.emit(img)
-                time.sleep(0.5)
+                time.sleep(1)  # Increasing capture interval to reduce load
             except Exception as e:
                 logging.error(f"Error in ImageCaptureThread: {e}")
 
@@ -73,10 +78,7 @@ class ImageCaptureThread(QThread):
     def capture_window_image(self, hwnd):
         try:
             window_rect = win32gui.GetWindowRect(hwnd)
-            width, height = (
-                window_rect[2] - window_rect[0],
-                window_rect[3] - window_rect[1],
-            )
+            width, height = window_rect[2] - window_rect[0], window_rect[3] - window_rect[1]
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
@@ -88,6 +90,8 @@ class ImageCaptureThread(QThread):
             bmpstr = saveBitMap.GetBitmapBits(True)
             img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+            
+            # Release resources
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
@@ -96,7 +100,6 @@ class ImageCaptureThread(QThread):
         except Exception as e:
             logging.error(f"Error capturing window image: {e}")
             return None
-
 
 class MouseTracker(QWidget):
 
@@ -188,12 +191,10 @@ class MouseTracker(QWidget):
             hwnd = win32gui.WindowFromPoint((x, y))
             if hwnd:
                 self.print_window_hierarchy(hwnd)
-            # If the clicked window is the same as the program window, do not record
             if pressed and self.recording and not self.is_own_window(hwnd):
                 self.record_click_event(x, y, hwnd)
 
     def is_own_window(self, hwnd):
-        # Check if the window title is "Mouse Tracker"
         window_title = win32gui.GetWindowText(hwnd)
         return window_title == "Mouse Tracker"
 
@@ -351,7 +352,7 @@ class MouseTracker(QWidget):
                 self.capture_thread.hwnd = hwnd
                 self.event_list.setCurrentRow(i)
                 self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
-                QApplication.processEvents()  # Update the UI
+                QApplication.processEvents()
 
         except RuntimeError as e:
             logging.error(f"Error playing script: {e}")
@@ -545,7 +546,6 @@ class MouseTracker(QWidget):
             print(
                 f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
             )
-
 
 if __name__ == "__main__":
     try:
