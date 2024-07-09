@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QSlider,
     QMessageBox,
+    QListWidget,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
@@ -117,10 +118,13 @@ class MouseTracker(QWidget):
         self.image_label.setMaximumSize(640, 480)
         self.image_label.setStyleSheet("background-color: white;")
 
+        self.event_list = QListWidget()
+
         self.layout.addWidget(self.program_label)
         self.layout.addWidget(self.target_label)
         self.layout.addWidget(self.current_target_label)
         self.layout.addWidget(self.image_label)
+        self.layout.addWidget(self.event_list)
 
         self.record_button = QPushButton("Start Recording")
         self.record_button.clicked.connect(self.toggle_recording)
@@ -207,21 +211,21 @@ class MouseTracker(QWidget):
         )
         depth = self.get_window_depth(hwnd)
 
-        logging.info(
-            f"Recording click event: Program: {current_program}, Window Name: {window_name}, Window Class: {window_class}, Depth: {depth}"
-        )
+        event_info = {
+            "relative_x": relative_x,
+            "relative_y": relative_y,
+            "program_name": current_program,
+            "program_path": program_path,
+            "window_name": window_name,
+            "window_class": window_class,
+            "depth": depth,
+            "time": time.time() - self.start_time,
+        }
 
-        self.click_events.append(
-            {
-                "relative_x": relative_x,
-                "relative_y": relative_y,
-                "program_name": current_program,
-                "program_path": program_path,
-                "window_name": window_name,
-                "window_class": window_class,
-                "depth": depth,
-                "time": time.time() - self.start_time,
-            }
+        logging.info(f"Recording click event: {event_info}")
+        self.click_events.append(event_info)
+        self.event_list.addItem(
+            f"Click at ({relative_x}, {relative_y}) in {current_program}"
         )
 
     def get_window_depth(self, hwnd):
@@ -292,6 +296,7 @@ class MouseTracker(QWidget):
         if self.recording:
             self.start_time = time.time()
             self.click_events = []
+            self.event_list.clear()
 
     def save_script(self):
         filename, _ = QFileDialog.getSaveFileName(
@@ -308,6 +313,11 @@ class MouseTracker(QWidget):
         if filename:
             with open(filename, "r") as file:
                 self.click_events = json.load(file)
+            self.event_list.clear()
+            for event in self.click_events:
+                self.event_list.addItem(
+                    f"Click at ({event['relative_x']}, {event['relative_y']}) in {event['program_name']}"
+                )
 
     def play_script(self):
         if not self.click_events:
@@ -319,7 +329,7 @@ class MouseTracker(QWidget):
             start_time = self.click_events[0]["time"]
             last_event_time = start_time
 
-            for event in self.click_events:
+            for i, event in enumerate(self.click_events):
                 elapsed_time = (event["time"] - last_event_time) * self.speed_factor
                 if elapsed_time > 0:
                     time.sleep(elapsed_time)
@@ -330,6 +340,7 @@ class MouseTracker(QWidget):
                     logging.warning(f"Invalid hwnd for event: {event}")
                     continue
 
+                self.event_list.setCurrentRow(i)
                 self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
                 QApplication.processEvents()  # Update the UI
 
