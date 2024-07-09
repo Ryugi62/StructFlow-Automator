@@ -188,8 +188,14 @@ class MouseTracker(QWidget):
             hwnd = win32gui.WindowFromPoint((x, y))
             if hwnd:
                 self.print_window_hierarchy(hwnd)
-            if pressed and self.recording:
-                self.record_click_event(x, y)
+            # If the clicked window is the same as the program window, do not record
+            if pressed and self.recording and not self.is_own_window(hwnd):
+                self.record_click_event(x, y, hwnd)
+
+    def is_own_window(self, hwnd):
+        # Check if the window title is "Mouse Tracker"
+        window_title = win32gui.GetWindowText(hwnd)
+        return window_title == "Mouse Tracker"
 
     def on_press(self, key):
         if key == keyboard.Key.f9:
@@ -197,9 +203,8 @@ class MouseTracker(QWidget):
         elif key == keyboard.Key.f10:
             self.play_script()
 
-    def record_click_event(self, x, y):
-        hwnd = win32gui.WindowFromPoint((x, y))
-        if hwnd == self.current_program_hwnd or hwnd == 0:
+    def record_click_event(self, x, y, hwnd):
+        if hwnd == self.current_program_hwnd or self.is_own_window(hwnd):
             return
         window_rect = win32gui.GetWindowRect(hwnd)
         relative_x, relative_y = x - window_rect[0], y - window_rect[1]
