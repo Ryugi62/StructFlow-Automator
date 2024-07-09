@@ -26,8 +26,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
 from pynput import keyboard, mouse
-import logging.handlers  # 추가
-
+import logging.handlers
+import os
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -41,24 +41,30 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)
-    ],  # 수정
+    ],
 )
-
 
 user32 = ctypes.windll.user32
 
 
 class ImageCaptureThread(QThread):
     image_captured = pyqtSignal(np.ndarray)
+    condition_met = pyqtSignal()
 
     def __init__(self, hwnd, exclude_hwnd):
         super().__init__()
         self.hwnd = hwnd
         self.exclude_hwnd = exclude_hwnd
         self.running = True
+        self.condition = None
+        self.start_time = time.time()
 
     def run(self):
         while self.running:
+            if time.time() - self.start_time > 300:
+                logging.error("Timeout error: Search exceeded 5 minutes.")
+                self.running = False
+                return
             if self.hwnd == self.exclude_hwnd:
                 time.sleep(0.1)
                 continue
@@ -66,7 +72,11 @@ class ImageCaptureThread(QThread):
                 img = self.capture_window_image(self.hwnd)
                 if img is not None:
                     self.image_captured.emit(img)
-                time.sleep(1)  # Increasing capture interval to reduce load
+                    if self.condition and self.condition(img):
+                        self.condition_met.emit()
+                        self.running = False
+                        return
+                time.sleep(1)
             except Exception as e:
                 logging.error(f"Error in ImageCaptureThread: {e}")
 
@@ -93,7 +103,6 @@ class ImageCaptureThread(QThread):
             img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
 
-            # Release resources
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
@@ -102,6 +111,9 @@ class ImageCaptureThread(QThread):
         except Exception as e:
             logging.error(f"Error capturing window image: {e}")
             return None
+
+    def set_condition(self, condition_func):
+        self.condition = condition_func
 
 
 class MouseTracker(QWidget):
@@ -183,6 +195,7 @@ class MouseTracker(QWidget):
             self.current_program_hwnd, self.winId()
         )
         self.capture_thread.image_captured.connect(self.update_image_label)
+        self.capture_thread.condition_met.connect(self.on_condition_met)
         self.capture_thread.start()
 
     def on_move(self, x, y):
@@ -220,6 +233,17 @@ class MouseTracker(QWidget):
         )
         depth = self.get_window_depth(hwnd)
 
+        img = self.capture_thread.capture_window_image(hwnd)
+        timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        image_filename = f"{current_program}_{timestamp}_{relative_x}_{relative_y}.png"
+        full_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "StructFlow-Automator-Private",
+            "sample_targets",
+            image_filename,
+        )
+        cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
         event_info = {
             "relative_x": relative_x,
             "relative_y": relative_y,
@@ -229,15 +253,37 @@ class MouseTracker(QWidget):
             "window_class": window_class,
             "depth": depth,
             "time": time.time() - self.start_time,
+            "image": {
+                "path": full_path,
+                "image_program_name": current_program,
+                "image_program_path": program_path,
+                "image_window_class": window_class,
+                "image_window_name": window_name,
+                "image_depth": 0,
+                "wait_for_image": False,
+                "wait_method": "time",  # 추가: time 또는 image
+            },
         }
 
-        self.update_image_label(self.capture_thread.capture_window_image(hwnd))
+        self.update_image_label(img)
         self.capture_thread.hwnd = hwnd
         logging.info(f"Recording click event: {event_info}")
         self.click_events.append(event_info)
         self.event_list.addItem(
             f"Click at ({relative_x}, {relative_y}) in {current_program}"
         )
+
+    def save_image(self, img, event_info):
+        timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        filename = f"{event_info['program_name']}_{timestamp}_{event_info['relative_x']}_{event_info['relative_y']}.png"
+        full_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "StructFlow-Automator-Private",
+            "sample_targets",
+            filename,
+        )
+        cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        event_info["image"]["path"] = full_path
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -271,7 +317,7 @@ class MouseTracker(QWidget):
     def update_program_label(self, hwnd=None):
         if hwnd is None:
             hwnd = win32gui.WindowFromPoint(self.current)
-        if hwnd == 0:
+        if hwnd == 0 or not win32gui.IsWindow(hwnd):
             return
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
         current_program, program_path = self.get_program_info(pid)
@@ -341,9 +387,14 @@ class MouseTracker(QWidget):
             last_event_time = start_time
 
             for i, event in enumerate(self.click_events):
-                elapsed_time = (event["time"] - last_event_time) * self.speed_factor
-                if elapsed_time > 0:
-                    time.sleep(elapsed_time)
+                wait_method = event["image"].get("wait_method", "time")
+                full_image_path = event["image"]["path"]
+                if wait_method == "image":
+                    self.wait_for_image(full_image_path)
+                else:
+                    elapsed_time = (event["time"] - last_event_time) * self.speed_factor
+                    if elapsed_time > 0:
+                        time.sleep(elapsed_time)
                 last_event_time = event["time"]
 
                 hwnd = self.find_target_hwnd(event)
@@ -362,6 +413,63 @@ class MouseTracker(QWidget):
             self.show_error_message(str(e))
         finally:
             self.set_buttons_enabled(True)
+
+    def wait_for_image(self, image_path):
+        if not os.path.exists(image_path):
+            logging.error(f"Image file not found: {image_path}")
+            return
+
+        target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if target_image is None:
+            logging.error(f"Failed to load image: {image_path}")
+            return
+
+        while True:
+            img = self.capture_thread.capture_window_image(self.current_program_hwnd)
+            if img is None:
+                time.sleep(1)
+                continue
+
+            # 이미지를 같은 크기로 변환하여 비교
+            if img.shape[:2] != target_image.shape[:2]:
+                target_image_resized = cv2.resize(target_image, (img.shape[1], img.shape[0]))
+            else:
+                target_image_resized = target_image
+
+            result = cv2.matchTemplate(img, target_image_resized, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            if max_val > 0.9:  # 유사도가 90% 이상이면 조건 만족으로 판단
+                break
+            time.sleep(1)
+
+    def wait_for_image(self, image_path):
+        if not os.path.exists(image_path):
+            logging.error(f"Image file not found: {image_path}")
+            return
+
+        target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        if target_image is None:
+            logging.error(f"Failed to load image: {image_path}")
+            return
+
+        while True:
+            img = self.capture_thread.capture_window_image(self.current_program_hwnd)
+            if img is None:
+                time.sleep(1)
+                continue
+
+            if img.shape[:2] != target_image.shape[:2]:
+                target_image_resized = cv2.resize(
+                    target_image, (img.shape[1], img.shape[0])
+                )
+            else:
+                target_image_resized = target_image
+
+            result = cv2.matchTemplate(img, target_image_resized, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            if max_val > 0.8:
+                break
+            time.sleep(1)
 
     def set_buttons_enabled(self, enabled):
         self.record_button.setEnabled(enabled)
@@ -549,6 +657,24 @@ class MouseTracker(QWidget):
             print(
                 f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
             )
+
+    def start_search_for_condition(self):
+        def condition(img):
+            target_image = cv2.imread("path_to_target_image.png")  # 목표 이미지 경로
+            result = cv2.matchTemplate(img, target_image, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+            return max_val > 0.8  # 유사도가 0.8 이상이면 조건 만족으로 판단
+
+        self.capture_thread.set_condition(condition)
+        self.capture_thread.start()
+
+    def on_condition_met(self):
+        logging.info("Condition met, stopping search.")
+        self.handle_timeout_error()
+
+    def handle_timeout_error(self):
+        logging.error("Timeout occurred during image search.")
+        QMessageBox.critical(self, "Error", "Timeout occurred during image search.")
 
 
 if __name__ == "__main__":
