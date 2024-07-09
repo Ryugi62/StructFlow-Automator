@@ -227,6 +227,8 @@ class MouseTracker(QWidget):
             "time": time.time() - self.start_time,
         }
 
+        self.update_image_label(self.capture_thread.capture_window_image(hwnd))
+        self.capture_thread.hwnd = hwnd
         logging.info(f"Recording click event: {event_info}")
         self.click_events.append(event_info)
         self.event_list.addItem(
@@ -345,6 +347,8 @@ class MouseTracker(QWidget):
                     logging.warning(f"Invalid hwnd for event: {event}")
                     continue
 
+                self.update_image_label(self.capture_thread.capture_window_image(hwnd))
+                self.capture_thread.hwnd = hwnd
                 self.event_list.setCurrentRow(i)
                 self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
                 QApplication.processEvents()  # Update the UI
