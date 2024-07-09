@@ -39,15 +39,14 @@ LOG_FILE = "mouse_tracker.log"
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],  # 수정
+    handlers=[
+        logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)
+    ],  # 수정
 )
 
 
-
-
-
-
 user32 = ctypes.windll.user32
+
 
 class ImageCaptureThread(QThread):
     image_captured = pyqtSignal(np.ndarray)
@@ -78,7 +77,10 @@ class ImageCaptureThread(QThread):
     def capture_window_image(self, hwnd):
         try:
             window_rect = win32gui.GetWindowRect(hwnd)
-            width, height = window_rect[2] - window_rect[0], window_rect[3] - window_rect[1]
+            width, height = (
+                window_rect[2] - window_rect[0],
+                window_rect[3] - window_rect[1],
+            )
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
@@ -90,7 +92,7 @@ class ImageCaptureThread(QThread):
             bmpstr = saveBitMap.GetBitmapBits(True)
             img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-            
+
             # Release resources
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
@@ -100,6 +102,7 @@ class ImageCaptureThread(QThread):
         except Exception as e:
             logging.error(f"Error capturing window image: {e}")
             return None
+
 
 class MouseTracker(QWidget):
 
@@ -546,6 +549,7 @@ class MouseTracker(QWidget):
             print(
                 f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
             )
+
 
 if __name__ == "__main__":
     try:
