@@ -226,6 +226,7 @@ class MouseTracker(QWidget):
             return
         window_rect = win32gui.GetWindowRect(hwnd)
         relative_x, relative_y = x - window_rect[0], y - window_rect[1]
+        width, height = window_rect[2] - window_rect[0], window_rect[3] - window_rect[1]
         self.update_program_label(hwnd)
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
         current_program, program_path = self.get_program_info(pid)
@@ -245,6 +246,9 @@ class MouseTracker(QWidget):
         )
         cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
+        # 프로그램 이름과 파일명 저장
+        window_title = win32gui.GetWindowText(hwnd)
+
         event_info = {
             "relative_x": relative_x,
             "relative_y": relative_y,
@@ -252,8 +256,10 @@ class MouseTracker(QWidget):
             "program_path": program_path,
             "window_name": window_name,
             "window_class": window_class,
+            "window_title": window_title,  # 창 제목 추가
             "depth": depth,
             "time": time.time() - self.start_time,
+            "window_rect": window_rect,  # 추가된 부분: 위치와 크기 정보
             "image": {
                 "path": full_path,  # full_path로 수정
                 "image_program_name": current_program,
@@ -263,6 +269,7 @@ class MouseTracker(QWidget):
                 "image_depth": 0,
                 "wait_for_image": False,
                 "wait_method": "time",  # 추가: time 또는 image
+                "window_title": window_title,  # 추가: 창 제목 저장
             },
         }
 
@@ -271,7 +278,7 @@ class MouseTracker(QWidget):
         logging.info(f"Recording click event: {event_info}")
         self.click_events.append(event_info)
         self.event_list.addItem(
-            f"Click at ({relative_x}, {relative_y}) in {current_program}"
+            f"Click at ({relative_x}, {relative_y}) in {current_program} ({window_title})"
         )
 
     def save_image(self, img, event_info):
@@ -324,10 +331,6 @@ class MouseTracker(QWidget):
             return
         _, pid = win32process.GetWindowThreadProcessId(hwnd)
         current_program, program_path = self.get_program_info(pid)
-
-        # window_name, window_class = win32gui.GetWindowText(hwnd), win32gui.GetClassName(
-        #     hwnd
-        # )
 
         window_name = win32gui.GetWindowText(hwnd)
         if window_name == "":
@@ -473,6 +476,8 @@ class MouseTracker(QWidget):
             event["window_name"],
             event["depth"],
             event["program_path"],
+            event["window_title"],  # 창 제목을 추가하여 정확한 hwnd를 찾기 위해
+            event["window_rect"],  # 위치와 크기 정보를 추가
         )
         if hwnds:
             return hwnds[0]
@@ -496,6 +501,8 @@ class MouseTracker(QWidget):
         window_name=None,
         depth=0,
         program_path=None,
+        window_title=None,
+        window_rect=None,  # 위치와 크기 정보를 매개변수로 추가
     ):
         hwnds = []
 
@@ -510,12 +517,34 @@ class MouseTracker(QWidget):
                 class_name = win32gui.GetClassName(hwnd)
                 window_text = win32gui.GetWindowText(hwnd)
                 class_match = window_class in class_name if window_class else True
-                name_match = window_name in window_text if window_name else True
-                if class_match and name_match and current_depth == depth:
+                name_match = window_name == window_text if window_name else True
+                title_match = window_title == window_text if window_title else True
+                rect_match = True
+                if window_rect:
+                    rect = win32gui.GetWindowRect(hwnd)
+                    rect_match = (
+                        window_rect[0] == rect[0]
+                        and window_rect[1] == rect[1]
+                        and window_rect[2] == rect[2]
+                        and window_rect[3] == rect[3]
+                    )
+                if (
+                    class_match
+                    and name_match
+                    and title_match
+                    and current_depth == depth
+                    and rect_match
+                ):
                     hwnds.append(hwnd)
                 hwnds.extend(
                     self.find_all_child_windows(
-                        hwnd, window_class, window_name, current_depth + 1
+                        hwnd,
+                        window_class,
+                        window_name,
+                        window_text,
+                        current_depth + 1,
+                        window_title,
+                        window_rect,  # 위치와 크기 정보를 전달
                     )
                 )
             return True
@@ -524,7 +553,7 @@ class MouseTracker(QWidget):
 
         if not hwnds:
             hwnds = self.find_hwnd_top_level(
-                program_name, window_class, window_name, program_path
+                program_name, window_class, window_name, program_path, window_title
             )
 
         if not hwnds:
@@ -533,7 +562,12 @@ class MouseTracker(QWidget):
         return hwnds
 
     def find_hwnd_top_level(
-        self, program_name, window_class=None, window_name=None, program_path=None
+        self,
+        program_name,
+        window_class=None,
+        window_name=None,
+        program_path=None,
+        window_title=None,
     ):
         hwnds = []
 
@@ -543,8 +577,9 @@ class MouseTracker(QWidget):
                 class_name = win32gui.GetClassName(hwnd)
                 window_text = win32gui.GetWindowText(hwnd)
                 class_match = window_class in class_name if window_class else True
-                name_match = window_name in window_text if window_name else True
-                if class_match and name_match:
+                name_match = window_name == window_text if window_name else True
+                title_match = window_title == window_text if window_title else True
+                if class_match and name_match and title_match:
                     hwnds.append(hwnd)
             return True
 
@@ -552,7 +587,14 @@ class MouseTracker(QWidget):
         return hwnds
 
     def find_all_child_windows(
-        self, parent_hwnd, window_class=None, window_text=None, current_depth=0
+        self,
+        parent_hwnd,
+        window_class=None,
+        window_name=None,
+        window_text=None,
+        current_depth=0,
+        window_title=None,
+        window_rect=None,  # 위치와 크기 정보를 매개변수로 추가
     ):
         child_windows = []
 
@@ -563,13 +605,34 @@ class MouseTracker(QWidget):
                 window_class in win32gui.GetClassName(hwnd) if window_class else True
             )
             match_text = (
-                window_text in win32gui.GetWindowText(hwnd) if window_text else True
+                window_text == win32gui.GetWindowText(hwnd) if window_text else True
             )
-            if match_class and match_text:
+            match_name = (
+                window_name == win32gui.GetWindowText(hwnd) if window_name else True
+            )
+            match_title = (
+                window_title == win32gui.GetWindowText(hwnd) if window_title else True
+            )
+            rect_match = True
+            if window_rect:
+                rect = win32gui.GetWindowRect(hwnd)
+                rect_match = (
+                    window_rect[0] == rect[0]
+                    and window_rect[1] == rect[1]
+                    and window_rect[2] == rect[2]
+                    and window_rect[3] == rect[3]
+                )
+            if match_class and (match_text or match_name or match_title) and rect_match:
                 child_windows.append(hwnd)
                 child_windows.extend(
                     self.find_all_child_windows(
-                        hwnd, window_class, window_text, current_depth + 1
+                        hwnd,
+                        window_class,
+                        window_name,
+                        window_text,
+                        current_depth + 1,
+                        window_title,
+                        window_rect,  # 위치와 크기 정보를 전달
                     )
                 )
             return True
