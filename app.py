@@ -86,15 +86,16 @@ class App(SingletonApp, ctk.CTk):
         frame = ctk.CTkFrame(parent, width=1100, height=728, fg_color="#2b2b2b")
         frame.configure(bg_color="#2b2b2b")
         sections = [
-            ("기본 정보", 0.05, self.add_basic_info_labels_and_entries),
-            ("모델링 형태", 0.55, self.add_modeling_type_checkboxes),
+            ("기본 정보", 0.05, self.add_basic_info_labels_and_entries, 0.05),
+            ("모델링 형태", 0.55, self.add_modeling_type_checkboxes, 0.05),
             ("건물", 0.05, self.add_division_settings, 0.4),
             ("태양광 형태", 0.55, self.add_solar_type_checkboxes, 0.4),
             ("건물 정보", 0.05, self.add_advanced_building_info, 0.7),
             ("태양광 기타해석", 0.55, self.add_analysis_options, 0.7),
         ]
-        for text, rel_y, func, rel_x in sections:
-            self.add_section_label(frame, text, rel_y, rel_x if rel_x else 0.05)
+        for section in sections:
+            text, rel_y, func, rel_x = section
+            self.add_section_label(frame, text, rel_y, rel_x)
             func(frame)
         self.add_log_box(frame)
         self.add_create_button(frame)
