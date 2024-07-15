@@ -1,5 +1,3 @@
-# AutoMouseTracker.py
-
 import sys
 import json
 import time
@@ -19,9 +17,14 @@ from PyQt5.QtWidgets import (
     QSlider,
     QMessageBox,
     QListWidget,
+    QProgressBar,
+    QStatusBar,
+    QMenuBar,
+    QAction,
+    QGridLayout,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
 import numpy as np
 import cv2
 import psutil
@@ -127,7 +130,7 @@ class MouseTracker(QWidget):
         self.init_capture_thread()
 
     def init_ui(self):
-        self.layout = QVBoxLayout()
+        self.layout = QGridLayout()
         self.program_label = QLabel("Current Program: None")
         self.program_label.setWordWrap(True)
         self.target_label = QLabel("Target Window: None")
@@ -135,37 +138,58 @@ class MouseTracker(QWidget):
         self.current_target_label = QLabel("Current Target Relative Position: (0, 0)")
         self.image_label = QLabel()
         self.image_label.setMaximumSize(640, 480)
-        self.image_label.setStyleSheet("background-color: white;")
+        self.image_label.setStyleSheet(
+            "background-color: white; border: 1px solid #ddd;"
+        )
 
         self.event_list = QListWidget()
 
-        self.layout.addWidget(self.program_label)
-        self.layout.addWidget(self.target_label)
-        self.layout.addWidget(self.current_target_label)
-        self.layout.addWidget(self.image_label)
-        self.layout.addWidget(self.event_list)
+        self.layout.addWidget(self.program_label, 0, 0, 1, 2)
+        self.layout.addWidget(self.target_label, 1, 0, 1, 2)
+        self.layout.addWidget(self.current_target_label, 2, 0, 1, 2)
+        self.layout.addWidget(self.image_label, 3, 0, 1, 2)
+        self.layout.addWidget(self.event_list, 4, 0, 1, 2)
 
         self.record_button = QPushButton("Start Recording")
+        self.record_button.setIcon(QIcon("icons/record.png"))
         self.record_button.clicked.connect(self.toggle_recording)
-        self.layout.addWidget(self.record_button)
+        self.layout.addWidget(self.record_button, 5, 0)
 
         self.save_button = QPushButton("Save Script")
+        self.save_button.setIcon(QIcon("icons/save.png"))
         self.save_button.clicked.connect(self.save_script)
-        self.layout.addWidget(self.save_button)
+        self.layout.addWidget(self.save_button, 5, 1)
 
         self.load_button = QPushButton("Load Script")
+        self.load_button.setIcon(QIcon("icons/load.png"))
         self.load_button.clicked.connect(self.load_script)
-        self.layout.addWidget(self.load_button)
+        self.layout.addWidget(self.load_button, 6, 0)
 
         self.play_button = QPushButton("Play Script")
+        self.play_button.setIcon(QIcon("icons/play.png"))
         self.play_button.clicked.connect(self.play_script)
-        self.layout.addWidget(self.play_button)
+        self.layout.addWidget(self.play_button, 6, 1)
 
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
-        self.layout.addWidget(self.speed_slider)
+        self.layout.addWidget(self.speed_slider, 7, 0, 1, 2)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.layout.addWidget(self.progress_bar, 8, 0, 1, 2)
+
+        self.status_bar = QStatusBar()
+        self.layout.addWidget(self.status_bar, 9, 0, 1, 2)
+
+        self.menu_bar = QMenuBar()
+        self.view_menu = self.menu_bar.addMenu("View")
+        self.dark_mode_action = QAction("Toggle Dark Mode", self)
+        self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
+        self.view_menu.addAction(self.dark_mode_action)
+        self.layout.setMenuBar(self.menu_bar)
 
         self.setLayout(self.layout)
         self.setWindowTitle("Mouse Tracker")
@@ -179,6 +203,7 @@ class MouseTracker(QWidget):
         self.speed_factor = 1.0
         self.current_program_hwnd = win32gui.GetForegroundWindow()
         self.capture_thread = None
+        self.dark_mode = False
 
     def init_listeners(self):
         self.mouse_listener = mouse.Listener(
@@ -367,6 +392,9 @@ class MouseTracker(QWidget):
         self.record_button.setText(
             "Stop Recording" if self.recording else "Start Recording"
         )
+        self.status_bar.showMessage(
+            "Recording started" if self.recording else "Recording stopped"
+        )
         if self.recording:
             self.start_time = time.time()
             self.click_events = []
@@ -379,6 +407,7 @@ class MouseTracker(QWidget):
         if filename:
             with open(filename, "w") as file:
                 json.dump(self.click_events, file)
+            self.status_bar.showMessage(f"Script saved to {filename}")
 
     def load_script(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -392,12 +421,15 @@ class MouseTracker(QWidget):
                 self.event_list.addItem(
                     f"Click at ({event['relative_x']}, {event['relative_y']}) in {event['program_name']}"
                 )
+            self.status_bar.showMessage(f"Script loaded from {filename}")
 
     def play_script(self):
         if not self.click_events:
             return
 
         self.set_buttons_enabled(False)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setMaximum(len(self.click_events))
 
         try:
             start_time = self.click_events[0]["time"]
@@ -428,12 +460,14 @@ class MouseTracker(QWidget):
                     self.update_image_label(img)
                 self.capture_thread.hwnd = hwnd
                 self.event_list.setCurrentRow(i)
+                self.progress_bar.setValue(i + 1)
 
         except RuntimeError as e:
             logging.error(f"Error playing script: {e}")
             self.show_error_message(str(e))
         finally:
             self.set_buttons_enabled(True)
+            self.progress_bar.setValue(len(self.click_events))
 
     def wait_for_image(self, image_path, hwnd):
         if not os.path.exists(image_path):
@@ -729,6 +763,13 @@ class MouseTracker(QWidget):
     def handle_timeout_error(self):
         logging.error("Timeout occurred during image search.")
         QMessageBox.critical(self, "Error", "Timeout occurred during image search.")
+
+    def toggle_dark_mode(self):
+        self.dark_mode = not self.dark_mode
+        if self.dark_mode:
+            self.setStyleSheet("background-color: #2E2E2E; color: #FFFFFF;")
+        else:
+            self.setStyleSheet("background-color: #FFFFFF; color: #000000;")
 
 
 if __name__ == "__main__":
