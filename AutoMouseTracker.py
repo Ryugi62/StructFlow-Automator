@@ -1,17 +1,14 @@
+# AutoMouseTracker.py
+
 import sys
 import json
 import time
 import logging
 import ctypes
+import os
+import uuid
+
 from ctypes import wintypes
-import numpy as np
-import cv2
-import psutil
-import win32gui
-import win32process
-import win32api
-import win32con
-import win32ui
 from PyQt5.QtWidgets import (
     QApplication,
     QLabel,
@@ -25,10 +22,16 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage
+import numpy as np
+import cv2
+import psutil
+import win32gui
+import win32process
+import win32api
+import win32con
+import win32ui
 from pynput import keyboard, mouse
-import logging.handlers
-import os
-import uuid  # 유니크한 파일명을 위한 uuid 모듈 추가
+from logging.handlers import RotatingFileHandler
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -36,13 +39,11 @@ WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 LOG_FILE = "mouse_tracker.log"
 
-# Logging configuration 수정
+# Logging configuration
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)
-    ],
+    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
 )
 
 user32 = ctypes.windll.user32
@@ -118,7 +119,6 @@ class ImageCaptureThread(QThread):
 
 
 class MouseTracker(QWidget):
-
     def __init__(self):
         super().__init__()
         self.init_variables()
@@ -236,7 +236,7 @@ class MouseTracker(QWidget):
         depth = self.get_window_depth(hwnd)
 
         img = self.capture_thread.capture_window_image(hwnd)
-        unique_id = uuid.uuid4().hex  # 유니크한 ID 생성
+        unique_id = uuid.uuid4().hex
         image_filename = f"{current_program}_{unique_id}_{relative_x}_{relative_y}.png"
         full_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -246,7 +246,6 @@ class MouseTracker(QWidget):
         )
         cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
-        # 프로그램 이름과 파일명 저장
         window_title = win32gui.GetWindowText(hwnd)
 
         event_info = {
@@ -256,20 +255,20 @@ class MouseTracker(QWidget):
             "program_path": program_path,
             "window_name": window_name,
             "window_class": window_class,
-            "window_title": window_title,  # 창 제목 추가
+            "window_title": window_title,
             "depth": depth,
             "time": time.time() - self.start_time,
-            "window_rect": window_rect,  # 추가된 부분: 위치와 크기 정보
+            "window_rect": window_rect,
             "image": {
-                "path": full_path,  # full_path로 수정
+                "path": full_path,
                 "image_program_name": current_program,
                 "image_program_path": program_path,
                 "image_window_class": window_class,
                 "image_window_name": window_name,
                 "image_depth": 0,
                 "wait_for_image": False,
-                "wait_method": "time",  # 추가: time 또는 image
-                "window_title": window_title,  # 추가: 창 제목 저장
+                "wait_method": "time",
+                "window_title": window_title,
             },
         }
 
@@ -282,7 +281,7 @@ class MouseTracker(QWidget):
         )
 
     def save_image(self, img, event_info):
-        unique_id = uuid.uuid4().hex  # 유니크한 ID 생성
+        unique_id = uuid.uuid4().hex
         filename = f"{event_info['program_name']}_{unique_id}_{event_info['relative_x']}_{event_info['relative_y']}.png"
         full_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -291,7 +290,7 @@ class MouseTracker(QWidget):
             filename,
         )
         cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        event_info["image"]["path"] = full_path  # full_path로 수정
+        event_info["image"]["path"] = full_path
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -308,6 +307,10 @@ class MouseTracker(QWidget):
 
     @pyqtSlot(np.ndarray)
     def update_image_label(self, img):
+        if img is None:
+            logging.error("Failed to capture image; img is None")
+            return
+
         height, width = img.shape[:2]
         max_width, max_height = 640, 480
         if width > max_width or height > max_height:
@@ -409,6 +412,9 @@ class MouseTracker(QWidget):
                     logging.warning(f"Invalid hwnd for event: {event}")
                     continue
 
+                self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
+                QApplication.processEvents()
+
                 if wait_method == "image" and os.path.exists(full_image_path):
                     self.wait_for_image(full_image_path, hwnd)
                 else:
@@ -417,11 +423,11 @@ class MouseTracker(QWidget):
                         time.sleep(elapsed_time)
                 last_event_time = event["time"]
 
-                self.update_image_label(self.capture_thread.capture_window_image(hwnd))
+                img = self.capture_thread.capture_window_image(hwnd)
+                if img is not None:
+                    self.update_image_label(img)
                 self.capture_thread.hwnd = hwnd
                 self.event_list.setCurrentRow(i)
-                self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
-                QApplication.processEvents()
 
         except RuntimeError as e:
             logging.error(f"Error playing script: {e}")
@@ -442,13 +448,10 @@ class MouseTracker(QWidget):
         while True:
             img = self.capture_thread.capture_window_image(hwnd)
 
-            print("img: ", img)
-
             if img is None:
                 time.sleep(1)
                 continue
 
-            # 이미지를 같은 크기로 변환하여 비교
             if img.shape[:2] != target_image.shape[:2]:
                 target_image_resized = cv2.resize(
                     target_image, (img.shape[1], img.shape[0])
@@ -458,8 +461,7 @@ class MouseTracker(QWidget):
 
             result = cv2.matchTemplate(img, target_image_resized, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-            print(f"현 이미지의 유사도: {max_val}, 기준 이미지의 유사도: 0.8")
-            if max_val > 0.74:  # 유사도가 90% 이상이면 조건 만족으로 판단
+            if max_val > 0.74:
                 break
             time.sleep(1)
 
@@ -476,8 +478,8 @@ class MouseTracker(QWidget):
             event["window_name"],
             event["depth"],
             event["program_path"],
-            event["window_title"],  # 창 제목을 추가하여 정확한 hwnd를 찾기 위해
-            event["window_rect"],  # 위치와 크기 정보를 추가
+            event["window_title"],
+            event["window_rect"],
         )
         if hwnds:
             return hwnds[0]
@@ -502,7 +504,7 @@ class MouseTracker(QWidget):
         depth=0,
         program_path=None,
         window_title=None,
-        window_rect=None,  # 위치와 크기 정보를 매개변수로 추가
+        window_rect=None,
     ):
         hwnds = []
 
@@ -544,7 +546,7 @@ class MouseTracker(QWidget):
                         window_text,
                         current_depth + 1,
                         window_title,
-                        window_rect,  # 위치와 크기 정보를 전달
+                        window_rect,
                     )
                 )
             return True
@@ -594,7 +596,7 @@ class MouseTracker(QWidget):
         window_text=None,
         current_depth=0,
         window_title=None,
-        window_rect=None,  # 위치와 크기 정보를 매개변수로 추가
+        window_rect=None,
     ):
         child_windows = []
 
@@ -632,7 +634,7 @@ class MouseTracker(QWidget):
                         window_text,
                         current_depth + 1,
                         window_title,
-                        window_rect,  # 위치와 크기 정보를 전달
+                        window_rect,
                     )
                 )
             return True
@@ -712,10 +714,10 @@ class MouseTracker(QWidget):
 
     def start_search_for_condition(self):
         def condition(img):
-            target_image = cv2.imread("path_to_target_image.png")  # 목표 이미지 경로
+            target_image = cv2.imread("path_to_target_image.png")
             result = cv2.matchTemplate(img, target_image, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-            return max_val > 0.8  # 유사도가 0.8 이상이면 조건 만족으로 판단
+            return max_val > 0.8
 
         self.capture_thread.set_condition(condition)
         self.capture_thread.start()
