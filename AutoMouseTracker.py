@@ -682,11 +682,21 @@ class MouseTracker(QWidget):
             return
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
+        now_x, now_y = win32api.GetCursorPos()
+        now_x += 10
+        now_y += 10
+        # 각 +10 을 했는데 만약 최대 화면 크기를 넘어가면 예외가 발생할 수 있음
+        # 만약 +10 을 했을 때 최대 화면 크기를 넘어가면 +10이 아닌 -10으로 변경해야 함
+        max_w, max_h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
+        if now_x > max_w:
+            now_x -= 20
+        if now_y > max_h:
+            now_y -= 20
 
         try:
-            self.simulate_mouse_event(hwnd, lParam, WM_MOUSEMOVE)
-            self.activate_window(hwnd)
-            time.sleep(0.1)
+            # 커서 이동
+            win32api.SetCursorPos((now_x, now_y))
+            time.sleep(0.05)
 
             self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
             time.sleep(0.05)
