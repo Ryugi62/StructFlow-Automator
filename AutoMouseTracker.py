@@ -234,7 +234,7 @@ class MouseTracker(QWidget):
             if hwnd:
                 self.print_window_hierarchy(hwnd)
             if pressed and self.recording and not self.is_own_window(hwnd):
-                self.record_click_event(x, y, hwnd)
+                self.record_click_event(x, y, hwnd, move_cursor=False)
 
     def is_own_window(self, hwnd):
         window_title = win32gui.GetWindowText(hwnd)
@@ -246,7 +246,7 @@ class MouseTracker(QWidget):
         elif key == keyboard.Key.f10:
             self.play_script()
 
-    def record_click_event(self, x, y, hwnd):
+    def record_click_event(self, x, y, hwnd, move_cursor):
         if hwnd == self.current_program_hwnd or self.is_own_window(hwnd):
             return
         window_rect = win32gui.GetWindowRect(hwnd)
@@ -284,6 +284,7 @@ class MouseTracker(QWidget):
             "depth": depth,
             "time": time.time() - self.start_time,
             "window_rect": window_rect,
+            "move_cursor": move_cursor,
             "image": {
                 "path": full_path,
                 "image_program_name": current_program,
@@ -444,7 +445,9 @@ class MouseTracker(QWidget):
                     logging.warning(f"Invalid hwnd for event: {event}")
                     continue
 
-                self.send_click_event(event["relative_x"], event["relative_y"], hwnd)
+                self.send_click_event(
+                    event["relative_x"], event["relative_y"], hwnd, event["move_cursor"]
+                )
                 QApplication.processEvents()
 
                 if wait_method == "image" and os.path.exists(full_image_path):
@@ -676,28 +679,32 @@ class MouseTracker(QWidget):
         win32gui.EnumChildWindows(parent_hwnd, enum_child_proc, None)
         return child_windows
 
-    def send_click_event(self, relative_x, relative_y, hwnd):
+    def send_click_event(self, relative_x, relative_y, hwnd, move_cursor):
         if not hwnd or not win32gui.IsWindow(hwnd):
             logging.warning(f"Invalid hwnd: {hwnd}")
             return
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
-        now_x, now_y = win32api.GetCursorPos()
-        now_x += 10
-        now_y += 10
-        # 각 +10 을 했는데 만약 최대 화면 크기를 넘어가면 예외가 발생할 수 있음
-        # 만약 +10 을 했을 때 최대 화면 크기를 넘어가면 +10이 아닌 -10으로 변경해야 함
-        max_w, max_h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
-        if now_x > max_w:
-            now_x -= 20
-        if now_y > max_h:
-            now_y -= 20
+        if move_cursor:
+            now_x, now_y = win32api.GetCursorPos()
+            now_x += 10
+            now_y += 10
+            # 각 +10 을 했는데 만약 최대 화면 크기를 넘어가면 예외가 발생할 수 있음
+            # 만약 +10 을 했을 때 최대 화면 크기를 넘어가면 +10이 아닌 -10으로 변경해야 함
+            max_w, max_h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
+            if now_x > max_w:
+                now_x -= 20
+            if now_y > max_h:
+                now_y -= 20
+
+            try:
+                # 커서 이동
+                win32api.SetCursorPos((now_x, now_y))
+                time.sleep(0.05)
+            except Exception as e:
+                logging.error(f"Failed to move cursor: {e}")
 
         try:
-            # 커서 이동
-            win32api.SetCursorPos((now_x, now_y))
-            time.sleep(0.05)
-
             self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
             time.sleep(0.05)
 
