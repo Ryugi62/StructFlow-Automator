@@ -1,11 +1,9 @@
-import sys
 import json
 import time
 import logging
 import ctypes
 import os
 import uuid
-
 from ctypes import wintypes
 from PyQt5.QtWidgets import (
     QApplication,
@@ -24,7 +22,7 @@ from PyQt5.QtWidgets import (
     QGridLayout,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QPixmap, QImage, QColor, QIcon
+from PyQt5.QtGui import QPixmap, QImage, QIcon
 import numpy as np
 import cv2
 import psutil
@@ -35,6 +33,9 @@ import win32con
 import win32ui
 from pynput import keyboard, mouse
 from logging.handlers import RotatingFileHandler
+import pywintypes
+import sys
+
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -129,8 +130,29 @@ class MouseTracker(QWidget):
         self.init_listeners()
         self.init_capture_thread()
 
+    def init_variables(self):
+        self.current = (0, 0)
+        self.click_events = []
+        self.recording = False
+        self.speed_factor = 1.0
+        self.current_program_hwnd = win32gui.GetForegroundWindow()
+        self.capture_thread = None
+        self.dark_mode = False
+
     def init_ui(self):
         self.layout = QGridLayout()
+        self.create_labels()
+        self.create_buttons()
+        self.create_sliders()
+        self.create_progress_bar()
+        self.create_status_bar()
+        self.create_menu_bar()
+        self.setLayout(self.layout)
+        self.setWindowTitle("Mouse Tracker")
+        self.setGeometry(100, 100, 800, 600)
+        self.show()
+
+    def create_labels(self):
         self.program_label = QLabel("Current Program: None")
         self.program_label.setWordWrap(True)
         self.target_label = QLabel("Target Window: None")
@@ -141,7 +163,6 @@ class MouseTracker(QWidget):
         self.image_label.setStyleSheet(
             "background-color: white; border: 1px solid #ddd;"
         )
-
         self.event_list = QListWidget()
 
         self.layout.addWidget(self.program_label, 0, 0, 1, 2)
@@ -150,60 +171,55 @@ class MouseTracker(QWidget):
         self.layout.addWidget(self.image_label, 3, 0, 1, 2)
         self.layout.addWidget(self.event_list, 4, 0, 1, 2)
 
-        self.record_button = QPushButton("Start Recording")
-        self.record_button.setIcon(QIcon("icons/record.png"))
-        self.record_button.clicked.connect(self.toggle_recording)
+    def create_buttons(self):
+        self.record_button = self.create_button(
+            "Start Recording", "icons/record.png", self.toggle_recording
+        )
+        self.save_button = self.create_button(
+            "Save Script", "icons/save.png", self.save_script
+        )
+        self.load_button = self.create_button(
+            "Load Script", "icons/load.png", self.load_script
+        )
+        self.play_button = self.create_button(
+            "Play Script", "icons/play.png", self.play_script
+        )
+
         self.layout.addWidget(self.record_button, 5, 0)
-
-        self.save_button = QPushButton("Save Script")
-        self.save_button.setIcon(QIcon("icons/save.png"))
-        self.save_button.clicked.connect(self.save_script)
         self.layout.addWidget(self.save_button, 5, 1)
-
-        self.load_button = QPushButton("Load Script")
-        self.load_button.setIcon(QIcon("icons/load.png"))
-        self.load_button.clicked.connect(self.load_script)
         self.layout.addWidget(self.load_button, 6, 0)
-
-        self.play_button = QPushButton("Play Script")
-        self.play_button.setIcon(QIcon("icons/play.png"))
-        self.play_button.clicked.connect(self.play_script)
         self.layout.addWidget(self.play_button, 6, 1)
 
+    def create_button(self, text, icon_path, callback):
+        button = QPushButton(text)
+        button.setIcon(QIcon(icon_path))
+        button.clicked.connect(callback)
+        return button
+
+    def create_sliders(self):
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
         self.layout.addWidget(self.speed_slider, 7, 0, 1, 2)
 
+    def create_progress_bar(self):
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
         self.layout.addWidget(self.progress_bar, 8, 0, 1, 2)
 
+    def create_status_bar(self):
         self.status_bar = QStatusBar()
         self.layout.addWidget(self.status_bar, 9, 0, 1, 2)
 
+    def create_menu_bar(self):
         self.menu_bar = QMenuBar()
         self.view_menu = self.menu_bar.addMenu("View")
         self.dark_mode_action = QAction("Toggle Dark Mode", self)
         self.dark_mode_action.triggered.connect(self.toggle_dark_mode)
         self.view_menu.addAction(self.dark_mode_action)
         self.layout.setMenuBar(self.menu_bar)
-
-        self.setLayout(self.layout)
-        self.setWindowTitle("Mouse Tracker")
-        self.setGeometry(100, 100, 800, 600)
-        self.show()
-
-    def init_variables(self):
-        self.current = (0, 0)
-        self.click_events = []
-        self.recording = False
-        self.speed_factor = 1.0
-        self.current_program_hwnd = win32gui.GetForegroundWindow()
-        self.capture_thread = None
-        self.dark_mode = False
 
     def init_listeners(self):
         self.mouse_listener = mouse.Listener(
@@ -230,11 +246,14 @@ class MouseTracker(QWidget):
 
     def on_click(self, x, y, button, pressed):
         if pressed:
-            hwnd = win32gui.WindowFromPoint((x, y))
-            if hwnd:
-                self.print_window_hierarchy(hwnd)
-            if pressed and self.recording and not self.is_own_window(hwnd):
-                self.record_click_event(x, y, hwnd, move_cursor=False)
+            try:
+                hwnd = win32gui.WindowFromPoint((x, y))
+                if hwnd:
+                    self.print_window_hierarchy(hwnd)
+                if pressed and self.recording and not self.is_own_window(hwnd):
+                    self.record_click_event(x, y, hwnd, move_cursor=False)
+            except Exception as e:
+                logging.error(f"Error in on_click: {e}")
 
     def is_own_window(self, hwnd):
         window_title = win32gui.GetWindowText(hwnd)
@@ -261,15 +280,34 @@ class MouseTracker(QWidget):
         depth = self.get_window_depth(hwnd)
 
         img = self.capture_thread.capture_window_image(hwnd)
-        unique_id = uuid.uuid4().hex
-        image_filename = f"{current_program}_{unique_id}_{relative_x}_{relative_y}.png"
-        full_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "StructFlow-Automator-Private",
-            "sample_targets",
-            image_filename,
-        )
-        cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        if img is not None:
+            # 전체 이미지 저장
+            unique_id = uuid.uuid4().hex
+            image_filename = (
+                f"{current_program}_{unique_id}_{relative_x}_{relative_y}.png"
+            )
+            save_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "StructFlow-Automator-Private",
+                "sample_targets",
+            )
+            os.makedirs(save_dir, exist_ok=True)
+            full_path = os.path.join(save_dir, image_filename)
+            cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
+            # 클릭한 위치 주변의 작은 영역을 추출
+            region_size = 50  # 추출할 영역의 크기 (50x50 픽셀)
+            x1 = max(0, relative_x - region_size // 2)
+            y1 = max(0, relative_y - region_size // 2)
+            x2 = min(img.shape[1], x1 + region_size)
+            y2 = min(img.shape[0], y1 + region_size)
+            target_region = img[y1:y2, x1:x2]
+
+            target_image_filename = f"{current_program}_{unique_id}_target.png"
+            target_full_path = os.path.join(save_dir, target_image_filename)
+            cv2.imwrite(
+                target_full_path, cv2.cvtColor(target_region, cv2.COLOR_RGB2BGR)
+            )
 
         window_title = win32gui.GetWindowText(hwnd)
 
@@ -287,12 +325,13 @@ class MouseTracker(QWidget):
             "move_cursor": move_cursor,
             "image": {
                 "path": full_path,
+                "target_path": target_full_path,
                 "image_program_name": current_program,
                 "image_program_path": program_path,
                 "image_window_class": window_class,
                 "image_window_name": window_name,
-                "image_depth": 0,
-                "wait_for_image": False,
+                "image_depth": depth,
+                "wait_for_image": True,
                 "wait_method": "time",
                 "window_title": window_title,
             },
@@ -305,18 +344,6 @@ class MouseTracker(QWidget):
         self.event_list.addItem(
             f"Click at ({relative_x}, {relative_y}) in {current_program} ({window_title})"
         )
-
-    def save_image(self, img, event_info):
-        unique_id = uuid.uuid4().hex
-        filename = f"{event_info['program_name']}_{unique_id}_{event_info['relative_x']}_{event_info['relative_y']}.png"
-        full_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "StructFlow-Automator-Private",
-            "sample_targets",
-            filename,
-        )
-        cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        event_info["image"]["path"] = full_path
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -424,6 +451,64 @@ class MouseTracker(QWidget):
                 )
             self.status_bar.showMessage(f"Script loaded from {filename}")
 
+    def wait_for_target_image(
+        self, target_image_path, hwnd, timeout=300, threshold=0.6
+    ):
+        start_time = time.time()
+        target_image = cv2.imread(target_image_path, cv2.IMREAD_COLOR)
+
+        if target_image is None:
+            logging.error(f"Failed to load target image: {target_image_path}")
+            return False
+
+        while time.time() - start_time < timeout:
+            try:
+                current_image = self.capture_thread.capture_window_image(hwnd)
+                if current_image is None:
+                    logging.warning("Failed to capture current window image")
+                    time.sleep(0.5)
+                    continue
+
+                # 이미지 크기 조정
+                if current_image.shape[:2] != target_image.shape[:2]:
+                    current_image = cv2.resize(
+                        current_image, (target_image.shape[1], target_image.shape[0])
+                    )
+
+                # 여러 매칭 방법 시도
+                methods = [cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED]
+                for method in methods:
+                    result = cv2.matchTemplate(current_image, target_image, method)
+                    if method == cv2.TM_SQDIFF_NORMED:
+                        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+                        match_val = (
+                            1 - min_val
+                        )  # TM_SQDIFF_NORMED에서는 값이 작을수록 일치
+                    else:
+                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+                        match_val = max_val
+
+                    logging.info(
+                        f"Image matching method: {method}, match value: {match_val}"
+                    )
+
+                    print(match_val)
+
+                    if match_val >= threshold:
+                        logging.info(
+                            f"Target image found. Method: {method}, Confidence: {match_val}"
+                        )
+                        return True
+
+            except Exception as e:
+                logging.error(f"Error while searching for target image: {e}")
+
+            QApplication.processEvents()  # UI 응답성 유지
+            time.sleep(0.8)
+
+        logging.warning(f"Target image not found within {timeout} seconds")
+        return False
+
     def play_script(self):
         if not self.click_events:
             return
@@ -432,75 +517,104 @@ class MouseTracker(QWidget):
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(len(self.click_events))
 
-        try:
-            start_time = self.click_events[0]["time"]
-            last_event_time = start_time
+        def process_event(index):
+            if index >= len(self.click_events):
+                self.set_buttons_enabled(True)
+                self.progress_bar.setValue(len(self.click_events))
+                logging.info("Script playback completed.")
+                return
 
-            for i, event in enumerate(self.click_events):
-                wait_method = event["image"].get("wait_method", "time")
-                full_image_path = event["image"]["path"]
+            event = self.click_events[index]
+            start_time = time.time()
+            max_wait_time = 300  # 5 minutes in seconds
 
-                hwnd = self.find_target_hwnd(event)
-                if hwnd is None or hwnd == 0:
-                    logging.warning(f"Invalid hwnd for event: {event}")
-                    continue
+            def try_process_event():
+                nonlocal start_time
+                try:
+                    wait_for_image = event["image"].get("wait_for_image", False)
+                    wait_method = event["image"].get("wait_method", "")
+                    target_image_path = event["image"].get("target_path")
 
-                self.send_click_event(
-                    event["relative_x"], event["relative_y"], hwnd, event["move_cursor"]
-                )
-                QApplication.processEvents()
+                    hwnd = None
+                    if wait_for_image and wait_method == "image":
+                        while time.time() - start_time < max_wait_time:
+                            hwnd = self.find_target_hwnd(event)
+                            if hwnd is not None and hwnd != 0:
+                                break
+                            time.sleep(2)  # Wait 2 seconds before trying again
 
-                if wait_method == "image" and os.path.exists(full_image_path):
-                    self.wait_for_image(full_image_path, hwnd)
-                else:
-                    elapsed_time = (event["time"] - last_event_time) * self.speed_factor
-                    if elapsed_time > 0:
-                        time.sleep(elapsed_time)
-                last_event_time = event["time"]
+                        if hwnd is None or hwnd == 0:
+                            logging.warning(f"Failed to find hwnd for event: {event}")
+                            QTimer.singleShot(
+                                500, try_process_event
+                            )  # Retry after 0.5 seconds
+                            return
 
-                img = self.capture_thread.capture_window_image(hwnd)
-                if img is not None:
-                    self.update_image_label(img)
-                self.capture_thread.hwnd = hwnd
-                self.event_list.setCurrentRow(i)
-                self.progress_bar.setValue(i + 1)
+                        while time.time() - start_time < max_wait_time:
+                            if target_image_path and os.path.exists(target_image_path):
+                                remaining_time = max_wait_time - (
+                                    time.time() - start_time
+                                )
+                                if self.wait_for_target_image(
+                                    target_image_path,
+                                    hwnd,
+                                    timeout=remaining_time,
+                                    threshold=0.6,
+                                ):
+                                    logging.info(
+                                        f"Target image found: {target_image_path}"
+                                    )
+                                    break
+                            time.sleep(2)  # Wait 2 seconds before trying again
 
-        except RuntimeError as e:
-            logging.error(f"Error playing script: {e}")
-            self.show_error_message(str(e))
-        finally:
-            self.set_buttons_enabled(True)
-            self.progress_bar.setValue(len(self.click_events))
+                        if time.time() - start_time >= max_wait_time:
+                            logging.warning(
+                                f"Failed to find target image within 5 minutes: {event}"
+                            )
+                            QTimer.singleShot(
+                                500, try_process_event
+                            )  # Retry after 0.5 seconds
+                            return
+                    else:
+                        hwnd = self.find_target_hwnd(event)
+                        if hwnd is None or hwnd == 0:
+                            logging.warning(f"Failed to find hwnd for event: {event}")
+                            QTimer.singleShot(
+                                500, try_process_event
+                            )  # Retry after 0.5 seconds
+                            return
 
-    def wait_for_image(self, image_path, hwnd):
-        if not os.path.exists(image_path):
-            logging.error(f"Image file not found: {image_path}")
-            return
+                    self.send_click_event(
+                        event["relative_x"],
+                        event["relative_y"],
+                        hwnd,
+                        event["move_cursor"],
+                    )
+                    logging.info(
+                        f"Click event sent: x={event['relative_x']}, y={event['relative_y']}"
+                    )
 
-        target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        if target_image is None:
-            logging.error(f"Failed to load image: {image_path}")
-            return
+                    img = self.capture_thread.capture_window_image(hwnd)
+                    if img is not None:
+                        self.update_image_label(img)
+                    self.capture_thread.hwnd = hwnd
+                    self.event_list.setCurrentRow(index)
+                    self.progress_bar.setValue(index + 1)
 
-        while True:
-            img = self.capture_thread.capture_window_image(hwnd)
+                    logging.info(
+                        f"Processed event {index + 1}/{len(self.click_events)}"
+                    )
+                    QTimer.singleShot(
+                        500, lambda: process_event(index + 1)
+                    )  # Proceed to next event after 0.5 seconds
 
-            if img is None:
-                time.sleep(1)
-                continue
+                except Exception as e:
+                    logging.error(f"Error processing event {index}: {e}")
+                    QTimer.singleShot(500, try_process_event)  # Retry after 0.5 seconds
 
-            if img.shape[:2] != target_image.shape[:2]:
-                target_image_resized = cv2.resize(
-                    target_image, (img.shape[1], img.shape[0])
-                )
-            else:
-                target_image_resized = target_image
+            QTimer.singleShot(100, try_process_event)
 
-            result = cv2.matchTemplate(img, target_image_resized, cv2.TM_CCOEFF_NORMED)
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-            if max_val > 0.74:
-                break
-            time.sleep(1)
+        process_event(0)
 
     def set_buttons_enabled(self, enabled):
         self.record_button.setEnabled(enabled)
@@ -689,8 +803,6 @@ class MouseTracker(QWidget):
             now_x, now_y = win32api.GetCursorPos()
             now_x += 10
             now_y += 10
-            # 각 +10 을 했는데 만약 최대 화면 크기를 넘어가면 예외가 발생할 수 있음
-            # 만약 +10 을 했을 때 최대 화면 크기를 넘어가면 +10이 아닌 -10으로 변경해야 함
             max_w, max_h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
             if now_x > max_w:
                 now_x -= 20
@@ -698,18 +810,17 @@ class MouseTracker(QWidget):
                 now_y -= 20
 
             try:
-                # 커서 이동
                 win32api.SetCursorPos((now_x, now_y))
-                time.sleep(0.05)
+                time.sleep(0.1)
             except Exception as e:
                 logging.error(f"Failed to move cursor: {e}")
 
         try:
             self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-            time.sleep(0.05)
+            time.sleep(0.1)
 
             self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-            time.sleep(0.05)
+            time.sleep(0.1)
 
             logging.debug("Click event sent successfully.")
         except Exception as e:
@@ -718,7 +829,7 @@ class MouseTracker(QWidget):
     def activate_window(self, hwnd):
         try:
             win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
-            time.sleep(0.05)
+            time.sleep(0.1)
         except Exception as e:
             logging.error(f"Failed to activate window: {e}")
 
@@ -741,25 +852,35 @@ class MouseTracker(QWidget):
         QMessageBox.critical(self, "Error", message)
 
     def print_window_hierarchy(self, hwnd):
-        hierarchy = self.find_window_hierarchy(hwnd)
-        self.display_window_hierarchy(hierarchy)
+        try:
+            hierarchy = self.find_window_hierarchy(hwnd)
+            self.display_window_hierarchy(hierarchy)
+        except Exception as e:
+            logging.error(f"Error in print_window_hierarchy: {e}")
 
     def find_window_hierarchy(self, hwnd):
         hierarchy = []
         current_hwnd = hwnd
 
         while current_hwnd:
-            window_title = win32gui.GetWindowText(current_hwnd)
-            window_class = win32gui.GetClassName(current_hwnd)
-            hierarchy.append((window_title, window_class, current_hwnd))
-            current_hwnd = win32gui.GetParent(current_hwnd)
+            try:
+                window_title = win32gui.GetWindowText(current_hwnd)
+                window_class = win32gui.GetClassName(current_hwnd)
+                hierarchy.append((window_title, window_class, current_hwnd))
+                current_hwnd = win32gui.GetParent(current_hwnd)
+            except pywintypes.error as e:
+                logging.warning(f"Error getting window info: {e}")
+                break
+            except Exception as e:
+                logging.warning(f"Unexpected error in find_window_hierarchy: {e}")
+                break
 
         return hierarchy[::-1]
 
     def display_window_hierarchy(self, hierarchy):
         indent = "   "
         for i, (title, class_name, hwnd) in enumerate(hierarchy):
-            print(
+            logging.info(
                 f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
             )
 
