@@ -35,6 +35,7 @@ from pynput import keyboard, mouse
 from logging.handlers import RotatingFileHandler
 import pywintypes
 import sys
+from ctypes import windll
 
 
 # Constants
@@ -92,27 +93,52 @@ class ImageCaptureThread(QThread):
 
     def capture_window_image(self, hwnd):
         try:
-            window_rect = win32gui.GetWindowRect(hwnd)
-            width, height = (
-                window_rect[2] - window_rect[0],
-                window_rect[3] - window_rect[1],
-            )
+            # 윈도우 크기 가져오기
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            width = right - left
+            height = bottom - top
+
+            # 윈도우 DC와 메모리 DC 생성
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
+
+            # 비트맵 객체 생성
             saveBitMap = win32ui.CreateBitmap()
             saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
             saveDC.SelectObject(saveBitMap)
-            user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 1)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype="uint8").reshape((height, width, 4))
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
 
+            # 비트맵에 윈도우 내용 복사 (PrintWindow 사용)
+            result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
+
+            if result == 0:
+                print(f"PrintWindow failed, trying BitBlt")
+                windll.gdi32.BitBlt(
+                    saveDC.GetSafeHdc(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    mfcDC.GetSafeHdc(),
+                    0,
+                    0,
+                    win32con.SRCCOPY,
+                )
+
+            # 비트맵을 numpy 배열로 변환
+            signedIntsArray = saveBitMap.GetBitmapBits(True)
+            img = np.frombuffer(signedIntsArray, dtype="uint8")
+            img.shape = (height, width, 4)
+
+            # 색상 공간 변환 (BGRA to BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+            # 리소스 해제
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(hwnd, hwndDC)
+
             return img
         except Exception as e:
             logging.error(f"Error capturing window image: {e}")
@@ -332,8 +358,9 @@ class MouseTracker(QWidget):
                 "image_window_name": window_name,
                 "image_depth": depth,
                 "wait_for_image": True,
-                "wait_method": "time",
+                "wait_method": "image",
                 "window_title": window_title,
+                "comparison_threshold": 0.74,  # 기본 임계값 추가
             },
         }
 
@@ -452,7 +479,7 @@ class MouseTracker(QWidget):
             self.status_bar.showMessage(f"Script loaded from {filename}")
 
     def wait_for_target_image(
-        self, target_image_path, hwnd, timeout=300, threshold=0.6
+        self, target_image_path, hwnd, timeout=300, threshold=0.74
     ):
         start_time = time.time()
         target_image = cv2.imread(target_image_path, cv2.IMREAD_COLOR)
@@ -488,25 +515,22 @@ class MouseTracker(QWidget):
                         _, max_val, _, max_loc = cv2.minMaxLoc(result)
                         match_val = max_val
 
-                    logging.info(
-                        f"Image matching method: {method}, match value: {match_val}"
+                    print(
+                        f"Image matching method: {method}, similarity: {match_val:.4f}"
                     )
 
-                    print(match_val)
-
                     if match_val >= threshold:
-                        logging.info(
-                            f"Target image found. Method: {method}, Confidence: {match_val}"
+                        print(
+                            f"Target image found. Method: {method}, Confidence: {match_val:.4f}"
                         )
                         return True
 
             except Exception as e:
                 logging.error(f"Error while searching for target image: {e}")
 
-            QApplication.processEvents()  # UI 응답성 유지
             time.sleep(0.8)
 
-        logging.warning(f"Target image not found within {timeout} seconds")
+        print(f"Target image not found within {timeout} seconds")
         return False
 
     def play_script(self):
@@ -534,6 +558,9 @@ class MouseTracker(QWidget):
                     wait_for_image = event["image"].get("wait_for_image", False)
                     wait_method = event["image"].get("wait_method", "")
                     target_image_path = event["image"].get("target_path")
+                    threshold = event["image"].get(
+                        "comparison_threshold", 0.74
+                    )  # 임계값 가져오기
 
                     hwnd = None
                     if wait_for_image and wait_method == "image":
@@ -559,7 +586,7 @@ class MouseTracker(QWidget):
                                     target_image_path,
                                     hwnd,
                                     timeout=remaining_time,
-                                    threshold=0.6,
+                                    threshold=threshold,  # 임계값 사용
                                 ):
                                     logging.info(
                                         f"Target image found: {target_image_path}"
