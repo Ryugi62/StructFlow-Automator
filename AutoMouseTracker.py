@@ -15,11 +15,13 @@ from PyQt5.QtWidgets import (
     QSlider,
     QMessageBox,
     QListWidget,
+    QListWidgetItem,
     QProgressBar,
     QStatusBar,
     QMenuBar,
     QAction,
     QGridLayout,
+    QCheckBox,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
@@ -164,6 +166,7 @@ class MouseTracker(QWidget):
         self.current_program_hwnd = win32gui.GetForegroundWindow()
         self.capture_thread = None
         self.dark_mode = False
+        self.custom_image_path = None
 
     def init_ui(self):
         self.layout = QGridLayout()
@@ -210,11 +213,15 @@ class MouseTracker(QWidget):
         self.play_button = self.create_button(
             "Play Script", "icons/play.png", self.play_script
         )
+        self.add_custom_image_button = self.create_button(
+            "Add Custom Image", "icons/custom_image.png", self.add_custom_image
+        )
 
         self.layout.addWidget(self.record_button, 5, 0)
         self.layout.addWidget(self.save_button, 5, 1)
         self.layout.addWidget(self.load_button, 6, 0)
         self.layout.addWidget(self.play_button, 6, 1)
+        self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
 
     def create_button(self, text, icon_path, callback):
         button = QPushButton(text)
@@ -227,17 +234,17 @@ class MouseTracker(QWidget):
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
-        self.layout.addWidget(self.speed_slider, 7, 0, 1, 2)
+        self.layout.addWidget(self.speed_slider, 8, 0, 1, 2)
 
     def create_progress_bar(self):
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.layout.addWidget(self.progress_bar, 8, 0, 1, 2)
+        self.layout.addWidget(self.progress_bar, 9, 0, 1, 2)
 
     def create_status_bar(self):
         self.status_bar = QStatusBar()
-        self.layout.addWidget(self.status_bar, 9, 0, 1, 2)
+        self.layout.addWidget(self.status_bar, 10, 0, 1, 2)
 
     def create_menu_bar(self):
         self.menu_bar = QMenuBar()
@@ -321,19 +328,25 @@ class MouseTracker(QWidget):
             full_path = os.path.join(save_dir, image_filename)
             cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
-            # 클릭한 위치 주변의 작은 영역을 추출
-            region_size = 50  # 추출할 영역의 크기 (50x50 픽셀)
-            x1 = max(0, relative_x - region_size // 2)
-            y1 = max(0, relative_y - region_size // 2)
-            x2 = min(img.shape[1], x1 + region_size)
-            y2 = min(img.shape[0], y1 + region_size)
-            target_region = img[y1:y2, x1:x2]
+            sizes = [(30, 30), (50, 50), (70, 70)]
+            target_image_paths = []
 
-            target_image_filename = f"{current_program}_{unique_id}_target.png"
-            target_full_path = os.path.join(save_dir, target_image_filename)
-            cv2.imwrite(
-                target_full_path, cv2.cvtColor(target_region, cv2.COLOR_RGB2BGR)
-            )
+            for size in sizes:
+                region_size = size[0]  # 추출할 영역의 크기
+                x1 = max(0, relative_x - region_size // 2)
+                y1 = max(0, relative_y - region_size // 2)
+                x2 = min(img.shape[1], x1 + region_size)
+                y2 = min(img.shape[0], y1 + region_size)
+                target_region = img[y1:y2, x1:x2]
+
+                target_image_filename = (
+                    f"{current_program}_{unique_id}_target_{size[0]}x{size[1]}.png"
+                )
+                target_full_path = os.path.join(save_dir, target_image_filename)
+                cv2.imwrite(
+                    target_full_path, cv2.cvtColor(target_region, cv2.COLOR_RGB2BGR)
+                )
+                target_image_paths.append({"path": target_full_path, "size": size})
 
         window_title = win32gui.GetWindowText(hwnd)
 
@@ -351,7 +364,7 @@ class MouseTracker(QWidget):
             "move_cursor": move_cursor,
             "image": {
                 "path": full_path,
-                "target_path": target_full_path,
+                "target_paths": target_image_paths,
                 "image_program_name": current_program,
                 "image_program_path": program_path,
                 "image_window_class": window_class,
@@ -360,7 +373,7 @@ class MouseTracker(QWidget):
                 "wait_for_image": True,
                 "wait_method": "image",
                 "window_title": window_title,
-                "comparison_threshold": 0.74,  # 기본 임계값 추가
+                "comparison_threshold": 0.6,  # 기본 임계값 추가
             },
         }
 
@@ -368,9 +381,12 @@ class MouseTracker(QWidget):
         self.capture_thread.hwnd = hwnd
         logging.info(f"Recording click event: {event_info}")
         self.click_events.append(event_info)
-        self.event_list.addItem(
+        list_item = QListWidgetItem(
             f"Click at ({relative_x}, {relative_y}) in {current_program} ({window_title})"
         )
+        list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+        list_item.setCheckState(Qt.Unchecked)
+        self.event_list.addItem(list_item)
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -473,62 +489,70 @@ class MouseTracker(QWidget):
                 self.click_events = json.load(file)
             self.event_list.clear()
             for event in self.click_events:
-                self.event_list.addItem(
+                list_item = QListWidgetItem(
                     f"Click at ({event['relative_x']}, {event['relative_y']}) in {event['program_name']}"
                 )
+                list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+                list_item.setCheckState(Qt.Unchecked)
+                self.event_list.addItem(list_item)
             self.status_bar.showMessage(f"Script loaded from {filename}")
 
     def wait_for_target_image(
-        self, target_image_path, hwnd, timeout=300, threshold=0.74
+        self, target_image_paths, hwnd, timeout=300, threshold=0.6
     ):
         start_time = time.time()
-        target_image = cv2.imread(target_image_path, cv2.IMREAD_COLOR)
 
-        if target_image is None:
-            logging.error(f"Failed to load target image: {target_image_path}")
-            return False
+        for target_image_info in target_image_paths:
+            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
 
-        while time.time() - start_time < timeout:
-            try:
-                current_image = self.capture_thread.capture_window_image(hwnd)
-                if current_image is None:
-                    logging.warning("Failed to capture current window image")
-                    time.sleep(0.5)
-                    continue
+            if target_image is None:
+                logging.error(
+                    f"Failed to load target image: {target_image_info['path']}"
+                )
+                return False
 
-                # 이미지 크기 조정
-                if current_image.shape[:2] != target_image.shape[:2]:
-                    current_image = cv2.resize(
-                        current_image, (target_image.shape[1], target_image.shape[0])
-                    )
+            while time.time() - start_time < timeout:
+                try:
+                    current_image = self.capture_thread.capture_window_image(hwnd)
+                    if current_image is None:
+                        logging.warning("Failed to capture current window image")
+                        time.sleep(0.5)
+                        continue
 
-                # 여러 매칭 방법 시도
-                methods = [cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED]
-                for method in methods:
-                    result = cv2.matchTemplate(current_image, target_image, method)
-                    if method == cv2.TM_SQDIFF_NORMED:
-                        min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-                        match_val = (
-                            1 - min_val
-                        )  # TM_SQDIFF_NORMED에서는 값이 작을수록 일치
-                    else:
-                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
-                        match_val = max_val
-
-                    print(
-                        f"Image matching method: {method}, similarity: {match_val:.4f}"
-                    )
-
-                    if match_val >= threshold:
-                        print(
-                            f"Target image found. Method: {method}, Confidence: {match_val:.4f}"
+                    # 이미지 크기 조정
+                    if current_image.shape[:2] != target_image.shape[:2]:
+                        current_image = cv2.resize(
+                            current_image,
+                            (target_image.shape[1], target_image.shape[0]),
                         )
-                        return True
 
-            except Exception as e:
-                logging.error(f"Error while searching for target image: {e}")
+                    # 여러 매칭 방법 시도
+                    methods = [cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED]
+                    for method in methods:
+                        result = cv2.matchTemplate(current_image, target_image, method)
+                        if method == cv2.TM_SQDIFF_NORMED:
+                            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
+                            match_val = (
+                                1 - min_val
+                            )  # TM_SQDIFF_NORMED에서는 값이 작을수록 일치
+                        else:
+                            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+                            match_val = max_val
 
-            time.sleep(0.8)
+                        print(
+                            f"Image matching method: {method}, similarity: {match_val:.4f}"
+                        )
+
+                        if match_val >= threshold:
+                            print(
+                                f"Target image found. Method: {method}, Confidence: {match_val:.4f}"
+                            )
+                            return True
+
+                except Exception as e:
+                    logging.error(f"Error while searching for target image: {e}")
+
+                time.sleep(0.8)
 
         print(f"Target image not found within {timeout} seconds")
         return False
@@ -557,9 +581,9 @@ class MouseTracker(QWidget):
                 try:
                     wait_for_image = event["image"].get("wait_for_image", False)
                     wait_method = event["image"].get("wait_method", "")
-                    target_image_path = event["image"].get("target_path")
+                    target_image_paths = event["image"].get("target_paths")
                     threshold = event["image"].get(
-                        "comparison_threshold", 0.74
+                        "comparison_threshold", 0.6
                     )  # 임계값 가져오기
 
                     hwnd = None
@@ -578,18 +602,18 @@ class MouseTracker(QWidget):
                             return
 
                         while time.time() - start_time < max_wait_time:
-                            if target_image_path and os.path.exists(target_image_path):
+                            if target_image_paths:
                                 remaining_time = max_wait_time - (
                                     time.time() - start_time
                                 )
                                 if self.wait_for_target_image(
-                                    target_image_path,
+                                    target_image_paths,
                                     hwnd,
                                     timeout=remaining_time,
                                     threshold=threshold,  # 임계값 사용
                                 ):
                                     logging.info(
-                                        f"Target image found: {target_image_path}"
+                                        f"Target image found: {target_image_paths}"
                                     )
                                     break
                             time.sleep(2)  # Wait 2 seconds before trying again
@@ -936,11 +960,38 @@ class MouseTracker(QWidget):
         else:
             self.setStyleSheet("background-color: #FFFFFF; color: #000000;")
 
+    def init_custom_image_ui(self):
+        self.add_custom_image_button = self.create_button(
+            "Add Custom Image", "icons/custom_image.png", self.add_custom_image
+        )
+        self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
+
+    def add_custom_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Image File", "", "Image Files (*.png *.jpg *.bmp)"
+        )
+        if file_path:
+            self.custom_image_path = file_path
+            self.status_bar.showMessage(f"Custom image set: {file_path}")
+            logging.info(f"Custom image set: {file_path}")
+
+            # Add custom image to selected events
+            for index in range(self.event_list.count()):
+                item = self.event_list.item(index)
+                if item.checkState() == Qt.Checked:
+                    event = self.click_events[index]
+                    if "custom_images" not in event:
+                        event["custom_images"] = []
+                    event["custom_images"].append(file_path)
+
+                    # Update the event in the QListWidget
+                    self.event_list.item(index).setText(
+                        f"{item.text()} [Custom Image Added]"
+                    )
+
 
 if __name__ == "__main__":
-    try:
-        app = QApplication(sys.argv)
-        ex = MouseTracker()
-        sys.exit(app.exec_())
-    except Exception as e:
-        logging.error(f"Error in main: {e}")
+    app = QApplication(sys.argv)
+    tracker = MouseTracker()
+    tracker.show()
+    sys.exit(app.exec_())
