@@ -1,10 +1,3 @@
-import json
-import time
-import logging
-import ctypes
-import os
-import uuid
-from ctypes import wintypes
 from PyQt5.QtWidgets import (
     QApplication,
     QLabel,
@@ -32,17 +25,21 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
 import numpy as np
 import cv2
+import logging
+import json
+import time
+import os
+import uuid
+import sys
+from ctypes import windll
 import psutil
 import win32gui
 import win32process
 import win32api
 import win32con
 import win32ui
-from pynput import keyboard, mouse
+from pynput import mouse, keyboard
 from logging.handlers import RotatingFileHandler
-import pywintypes
-import sys
-from ctypes import windll
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -56,8 +53,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
 )
-
-user32 = ctypes.windll.user32
 
 
 class ImageCaptureThread(QThread):
@@ -182,7 +177,14 @@ class EventSettingsDialog(QDialog):
         condition_layout = QHBoxLayout()
         condition_layout.addWidget(QLabel("Conditional Execution:"))
         self.condition_combo = QComboBox()
-        self.condition_combo.addItems(["None", "Image Present", "Image Not Present"])
+        self.condition_combo.addItems(
+            [
+                "None",
+                "Image Present",
+                "Image Not Present",
+                "Wait up to 5 minutes for Image",
+            ]
+        )
         self.condition_combo.setCurrentText(self.event.get("condition", "None"))
         condition_layout.addWidget(self.condition_combo)
         layout.addLayout(condition_layout)
@@ -234,6 +236,7 @@ class MouseTracker(QWidget):
         self.capture_thread = None
         self.dark_mode = False
         self.custom_image_path = None
+        self.running_script = False
 
     def init_ui(self):
         self.layout = QGridLayout()
@@ -260,6 +263,7 @@ class MouseTracker(QWidget):
             "background-color: white; border: 1px solid #ddd;"
         )
         self.event_list = QListWidget()
+        self.event_list.itemClicked.connect(self.update_image_on_selection)
 
         self.layout.addWidget(self.program_label, 0, 0, 1, 2)
         self.layout.addWidget(self.target_label, 1, 0, 1, 2)
@@ -286,6 +290,9 @@ class MouseTracker(QWidget):
         self.settings_button = self.create_button(
             "Event Settings", "icons/settings.png", self.show_event_settings
         )
+        self.stop_button = self.create_button(
+            "Emergency Stop", "icons/stop.png", self.emergency_stop
+        )
 
         self.layout.addWidget(self.record_button, 5, 0)
         self.layout.addWidget(self.save_button, 5, 1)
@@ -293,6 +300,7 @@ class MouseTracker(QWidget):
         self.layout.addWidget(self.play_button, 6, 1)
         self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
         self.layout.addWidget(self.settings_button, 8, 0, 1, 2)
+        self.layout.addWidget(self.stop_button, 9, 0, 1, 2)
 
     def create_button(self, text, icon_path, callback):
         button = QPushButton(text)
@@ -305,17 +313,17 @@ class MouseTracker(QWidget):
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
-        self.layout.addWidget(self.speed_slider, 9, 0, 1, 2)
+        self.layout.addWidget(self.speed_slider, 10, 0, 1, 2)
 
     def create_progress_bar(self):
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.layout.addWidget(self.progress_bar, 10, 0, 1, 2)
+        self.layout.addWidget(self.progress_bar, 11, 0, 1, 2)
 
     def create_status_bar(self):
         self.status_bar = QStatusBar()
-        self.layout.addWidget(self.status_bar, 11, 0, 1, 2)
+        self.layout.addWidget(self.status_bar, 12, 0, 1, 2)
 
     def create_menu_bar(self):
         self.menu_bar = QMenuBar()
@@ -571,18 +579,43 @@ class MouseTracker(QWidget):
         if not self.click_events:
             return
 
+        self.running_script = True
         self.set_buttons_enabled(False)
         self.progress_bar.setValue(0)
         self.progress_bar.setMaximum(len(self.click_events))
 
         def process_event(index):
+            if not self.running_script:
+                self.set_buttons_enabled(True)
+                logging.info("Script playback stopped.")
+                return
+
             if index >= len(self.click_events):
                 self.set_buttons_enabled(True)
+                self.running_script = False
                 self.progress_bar.setValue(len(self.click_events))
                 logging.info("Script playback completed.")
                 return
 
             event = self.click_events[index]
+
+            if event.get("condition") == "Wait up to 5 minutes for Image":
+                start_time = time.time()
+                while time.time() - start_time <= 300:
+                    try:
+                        hwnd = self.find_target_hwnd(event)
+                        if hwnd and self.check_image_presence(event, hwnd):
+                            logging.info("Image found within 5 minutes.")
+                            break
+                    except RuntimeError:
+                        logging.warning("Target hwnd not found, retrying...")
+                    time.sleep(1)
+                else:
+                    logging.warning(
+                        "Image not found within 5 minutes, stopping script."
+                    )
+                    self.stop_script_execution()
+                    return
 
             repeat_count = event.get("repeat_count", 1)
             for _ in range(repeat_count):
@@ -721,7 +754,7 @@ class MouseTracker(QWidget):
         )
 
     def stop_script_execution(self):
-        # Implement logic to stop the script execution
+        self.running_script = False
         self.set_buttons_enabled(True)
         self.progress_bar.setValue(0)
         logging.info("Script execution stopped.")
@@ -731,19 +764,24 @@ class MouseTracker(QWidget):
         self.save_button.setEnabled(enabled)
         self.load_button.setEnabled(enabled)
         self.play_button.setEnabled(enabled)
+        self.stop_button.setEnabled(not enabled)
 
     def find_target_hwnd(self, event):
-        hwnds = self.find_hwnd(
-            event["program_name"],
-            event["window_class"],
-            event["window_name"],
-            event["depth"],
-            event["program_path"],
-            event["window_title"],
-            event["window_rect"],
-        )
-        if hwnds:
-            return hwnds[0]
+        try:
+            hwnds = self.find_hwnd(
+                event["program_name"],
+                event["window_class"],
+                event["window_name"],
+                event["depth"],
+                event["program_path"],
+                event["window_title"],
+                event["window_rect"],
+            )
+            if hwnds:
+                return hwnds[0]
+        except RuntimeError as e:
+            logging.warning(f"No valid hwnd found for event: {event}. Exception: {e}")
+            return None
 
         logging.warning(f"No valid hwnd found for event: {event}")
         return None
@@ -938,9 +976,6 @@ class MouseTracker(QWidget):
                 window_class = win32gui.GetClassName(current_hwnd)
                 hierarchy.append((window_title, window_class, current_hwnd))
                 current_hwnd = win32gui.GetParent(current_hwnd)
-            except pywintypes.error as e:
-                logging.warning(f"Error getting window info: {e}")
-                break
             except Exception as e:
                 logging.warning(f"Unexpected error in find_window_hierarchy: {e}")
                 break
@@ -953,6 +988,14 @@ class MouseTracker(QWidget):
             logging.info(
                 f"{indent * i}Window Title: {title}, Window Class: {class_name}, HWND: {hwnd}"
             )
+
+    def update_image_on_selection(self, item):
+        index = self.event_list.row(item)
+        event = self.click_events[index]
+        image_path = event.get("image", {}).get("path", None)
+        if image_path and os.path.exists(image_path):
+            img = cv2.imread(image_path)
+            self.update_image_label(img)
 
     def start_search_for_condition(self):
         def condition(img):
