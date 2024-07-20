@@ -22,6 +22,11 @@ from PyQt5.QtWidgets import (
     QAction,
     QGridLayout,
     QCheckBox,
+    QDialog,
+    QHBoxLayout,
+    QLineEdit,
+    QSpinBox,
+    QComboBox,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
@@ -38,7 +43,6 @@ from logging.handlers import RotatingFileHandler
 import pywintypes
 import sys
 from ctypes import windll
-
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -95,22 +99,18 @@ class ImageCaptureThread(QThread):
 
     def capture_window_image(self, hwnd):
         try:
-            # 윈도우 크기 가져오기
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             width = right - left
             height = bottom - top
 
-            # 윈도우 DC와 메모리 DC 생성
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
 
-            # 비트맵 객체 생성
             saveBitMap = win32ui.CreateBitmap()
             saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
             saveDC.SelectObject(saveBitMap)
 
-            # 비트맵에 윈도우 내용 복사 (PrintWindow 사용)
             result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
 
             if result == 0:
@@ -127,15 +127,12 @@ class ImageCaptureThread(QThread):
                     win32con.SRCCOPY,
                 )
 
-            # 비트맵을 numpy 배열로 변환
             signedIntsArray = saveBitMap.GetBitmapBits(True)
             img = np.frombuffer(signedIntsArray, dtype="uint8")
             img.shape = (height, width, 4)
 
-            # 색상 공간 변환 (BGRA to BGR)
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-            # 리소스 해제
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
@@ -150,6 +147,75 @@ class ImageCaptureThread(QThread):
         self.condition = condition_func
 
 
+class EventSettingsDialog(QDialog):
+    def __init__(self, event, parent=None):
+        super(EventSettingsDialog, self).__init__(parent)
+        self.event = event
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        self.setWindowTitle("Event Settings")
+
+        self.move_cursor_checkbox = QCheckBox("Move Cursor")
+        self.move_cursor_checkbox.setChecked(self.event.get("move_cursor", False))
+        layout.addWidget(self.move_cursor_checkbox)
+
+        delay_layout = QHBoxLayout()
+        delay_layout.addWidget(QLabel("Click Delay (ms):"))
+        self.delay_spinbox = QSpinBox()
+        self.delay_spinbox.setRange(0, 10000)
+        self.delay_spinbox.setValue(self.event.get("click_delay", 0))
+        delay_layout.addWidget(self.delay_spinbox)
+        layout.addLayout(delay_layout)
+
+        self.double_click_checkbox = QCheckBox("Double Click")
+        self.double_click_checkbox.setChecked(self.event.get("double_click", False))
+        layout.addWidget(self.double_click_checkbox)
+
+        keyboard_layout = QHBoxLayout()
+        keyboard_layout.addWidget(QLabel("Keyboard Input:"))
+        self.keyboard_input = QLineEdit(self.event.get("keyboard_input", ""))
+        keyboard_layout.addWidget(self.keyboard_input)
+        layout.addLayout(keyboard_layout)
+
+        condition_layout = QHBoxLayout()
+        condition_layout.addWidget(QLabel("Conditional Execution:"))
+        self.condition_combo = QComboBox()
+        self.condition_combo.addItems(["None", "Image Present", "Image Not Present"])
+        self.condition_combo.setCurrentText(self.event.get("condition", "None"))
+        condition_layout.addWidget(self.condition_combo)
+        layout.addLayout(condition_layout)
+
+        repeat_layout = QHBoxLayout()
+        repeat_layout.addWidget(QLabel("Repeat Count:"))
+        self.repeat_spinbox = QSpinBox()
+        self.repeat_spinbox.setRange(1, 1000)
+        self.repeat_spinbox.setValue(self.event.get("repeat_count", 1))
+        repeat_layout.addWidget(self.repeat_spinbox)
+        layout.addLayout(repeat_layout)
+
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Save")
+        save_button.clicked.connect(self.save_settings)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.close)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+
+        self.setLayout(layout)
+
+    def save_settings(self):
+        self.event["move_cursor"] = self.move_cursor_checkbox.isChecked()
+        self.event["click_delay"] = self.delay_spinbox.value()
+        self.event["double_click"] = self.double_click_checkbox.isChecked()
+        self.event["keyboard_input"] = self.keyboard_input.text()
+        self.event["condition"] = self.condition_combo.currentText()
+        self.event["repeat_count"] = self.repeat_spinbox.value()
+        self.accept()
+
+
 class MouseTracker(QWidget):
     def __init__(self):
         super().__init__()
@@ -157,6 +223,7 @@ class MouseTracker(QWidget):
         self.init_ui()
         self.init_listeners()
         self.init_capture_thread()
+        self.init_emergency_stop()
 
     def init_variables(self):
         self.current = (0, 0)
@@ -216,12 +283,16 @@ class MouseTracker(QWidget):
         self.add_custom_image_button = self.create_button(
             "Add Custom Image", "icons/custom_image.png", self.add_custom_image
         )
+        self.settings_button = self.create_button(
+            "Event Settings", "icons/settings.png", self.show_event_settings
+        )
 
         self.layout.addWidget(self.record_button, 5, 0)
         self.layout.addWidget(self.save_button, 5, 1)
         self.layout.addWidget(self.load_button, 6, 0)
         self.layout.addWidget(self.play_button, 6, 1)
         self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
+        self.layout.addWidget(self.settings_button, 8, 0, 1, 2)
 
     def create_button(self, text, icon_path, callback):
         button = QPushButton(text)
@@ -234,17 +305,17 @@ class MouseTracker(QWidget):
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
-        self.layout.addWidget(self.speed_slider, 8, 0, 1, 2)
+        self.layout.addWidget(self.speed_slider, 9, 0, 1, 2)
 
     def create_progress_bar(self):
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.layout.addWidget(self.progress_bar, 9, 0, 1, 2)
+        self.layout.addWidget(self.progress_bar, 10, 0, 1, 2)
 
     def create_status_bar(self):
         self.status_bar = QStatusBar()
-        self.layout.addWidget(self.status_bar, 10, 0, 1, 2)
+        self.layout.addWidget(self.status_bar, 11, 0, 1, 2)
 
     def create_menu_bar(self):
         self.menu_bar = QMenuBar()
@@ -314,7 +385,6 @@ class MouseTracker(QWidget):
 
         img = self.capture_thread.capture_window_image(hwnd)
         if img is not None:
-            # 전체 이미지 저장
             unique_id = uuid.uuid4().hex
             image_filename = (
                 f"{current_program}_{unique_id}_{relative_x}_{relative_y}.png"
@@ -332,7 +402,7 @@ class MouseTracker(QWidget):
             target_image_paths = []
 
             for size in sizes:
-                region_size = size[0]  # 추출할 영역의 크기
+                region_size = size[0]
                 x1 = max(0, relative_x - region_size // 2)
                 y1 = max(0, relative_y - region_size // 2)
                 x2 = min(img.shape[1], x1 + region_size)
@@ -373,7 +443,7 @@ class MouseTracker(QWidget):
                 "wait_for_image": True,
                 "wait_method": "image",
                 "window_title": window_title,
-                "comparison_threshold": 0.6,  # 기본 임계값 추가
+                "comparison_threshold": 0.6,
             },
         }
 
@@ -497,66 +567,6 @@ class MouseTracker(QWidget):
                 self.event_list.addItem(list_item)
             self.status_bar.showMessage(f"Script loaded from {filename}")
 
-    def wait_for_target_image(
-        self, target_image_paths, hwnd, timeout=300, threshold=0.6
-    ):
-        start_time = time.time()
-
-        for target_image_info in target_image_paths:
-            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
-
-            if target_image is None:
-                logging.error(
-                    f"Failed to load target image: {target_image_info['path']}"
-                )
-                return False
-
-            while time.time() - start_time < timeout:
-                try:
-                    current_image = self.capture_thread.capture_window_image(hwnd)
-                    if current_image is None:
-                        logging.warning("Failed to capture current window image")
-                        time.sleep(0.5)
-                        continue
-
-                    # 이미지 크기 조정
-                    if current_image.shape[:2] != target_image.shape[:2]:
-                        current_image = cv2.resize(
-                            current_image,
-                            (target_image.shape[1], target_image.shape[0]),
-                        )
-
-                    # 여러 매칭 방법 시도
-                    methods = [cv2.TM_CCOEFF_NORMED, cv2.TM_SQDIFF_NORMED]
-                    for method in methods:
-                        result = cv2.matchTemplate(current_image, target_image, method)
-                        if method == cv2.TM_SQDIFF_NORMED:
-                            min_val, _, min_loc, _ = cv2.minMaxLoc(result)
-                            match_val = (
-                                1 - min_val
-                            )  # TM_SQDIFF_NORMED에서는 값이 작을수록 일치
-                        else:
-                            _, max_val, _, max_loc = cv2.minMaxLoc(result)
-                            match_val = max_val
-
-                        print(
-                            f"Image matching method: {method}, similarity: {match_val:.4f}"
-                        )
-
-                        if match_val >= threshold:
-                            print(
-                                f"Target image found. Method: {method}, Confidence: {match_val:.4f}"
-                            )
-                            return True
-
-                except Exception as e:
-                    logging.error(f"Error while searching for target image: {e}")
-
-                time.sleep(0.8)
-
-        print(f"Target image not found within {timeout} seconds")
-        return False
-
     def play_script(self):
         if not self.click_events:
             return
@@ -573,99 +583,148 @@ class MouseTracker(QWidget):
                 return
 
             event = self.click_events[index]
-            start_time = time.time()
-            max_wait_time = 300  # 5 minutes in seconds
 
-            def try_process_event():
-                nonlocal start_time
-                try:
-                    wait_for_image = event["image"].get("wait_for_image", False)
-                    wait_method = event["image"].get("wait_method", "")
-                    target_image_paths = event["image"].get("target_paths")
-                    threshold = event["image"].get(
-                        "comparison_threshold", 0.6
-                    )  # 임계값 가져오기
+            repeat_count = event.get("repeat_count", 1)
+            for _ in range(repeat_count):
+                if not self.process_single_event(event):
+                    break
 
-                    hwnd = None
-                    if wait_for_image and wait_method == "image":
-                        while time.time() - start_time < max_wait_time:
-                            hwnd = self.find_target_hwnd(event)
-                            if hwnd is not None and hwnd != 0:
-                                break
-                            time.sleep(2)  # Wait 2 seconds before trying again
+            self.event_list.setCurrentRow(index)
+            self.progress_bar.setValue(index + 1)
 
-                        if hwnd is None or hwnd == 0:
-                            logging.warning(f"Failed to find hwnd for event: {event}")
-                            QTimer.singleShot(
-                                500, try_process_event
-                            )  # Retry after 0.5 seconds
-                            return
-
-                        while time.time() - start_time < max_wait_time:
-                            if target_image_paths:
-                                remaining_time = max_wait_time - (
-                                    time.time() - start_time
-                                )
-                                if self.wait_for_target_image(
-                                    target_image_paths,
-                                    hwnd,
-                                    timeout=remaining_time,
-                                    threshold=threshold,  # 임계값 사용
-                                ):
-                                    logging.info(
-                                        f"Target image found: {target_image_paths}"
-                                    )
-                                    break
-                            time.sleep(2)  # Wait 2 seconds before trying again
-
-                        if time.time() - start_time >= max_wait_time:
-                            logging.warning(
-                                f"Failed to find target image within 5 minutes: {event}"
-                            )
-                            QTimer.singleShot(
-                                500, try_process_event
-                            )  # Retry after 0.5 seconds
-                            return
-                    else:
-                        hwnd = self.find_target_hwnd(event)
-                        if hwnd is None or hwnd == 0:
-                            logging.warning(f"Failed to find hwnd for event: {event}")
-                            QTimer.singleShot(
-                                500, try_process_event
-                            )  # Retry after 0.5 seconds
-                            return
-
-                    self.send_click_event(
-                        event["relative_x"],
-                        event["relative_y"],
-                        hwnd,
-                        event["move_cursor"],
-                    )
-                    logging.info(
-                        f"Click event sent: x={event['relative_x']}, y={event['relative_y']}"
-                    )
-
-                    img = self.capture_thread.capture_window_image(hwnd)
-                    if img is not None:
-                        self.update_image_label(img)
-                    self.capture_thread.hwnd = hwnd
-                    self.event_list.setCurrentRow(index)
-                    self.progress_bar.setValue(index + 1)
-
-                    logging.info(
-                        f"Processed event {index + 1}/{len(self.click_events)}"
-                    )
-                    QTimer.singleShot(
-                        500, lambda: process_event(index + 1)
-                    )  # Proceed to next event after 0.5 seconds
-
-                except Exception as e:
-                    logging.error(f"Error processing event {index}: {e}")
-                    QTimer.singleShot(500, try_process_event)  # Retry after 0.5 seconds
-
-            QTimer.singleShot(100, try_process_event)
+            logging.info(f"Processed event {index + 1}/{len(self.click_events)}")
+            QTimer.singleShot(500, lambda: process_event(index + 1))
 
         process_event(0)
+
+    def process_single_event(self, event):
+        hwnd = self.find_target_hwnd(event)
+        if hwnd is None or hwnd == 0:
+            logging.warning(f"Failed to find hwnd for event: {event}")
+            return False
+
+        if event.get("condition") == "Image Present":
+            if not self.check_image_presence(event, hwnd):
+                logging.info("Condition 'Image Present' not met, skipping event.")
+                return False
+        elif event.get("condition") == "Image Not Present":
+            if self.check_image_presence(event, hwnd):
+                logging.info("Condition 'Image Not Present' not met, skipping event.")
+                return False
+
+        click_delay = event.get("click_delay", 0)
+        if click_delay > 0:
+            time.sleep(click_delay / 1000)
+
+        self.send_click_event(
+            event["relative_x"],
+            event["relative_y"],
+            hwnd,
+            event["move_cursor"],
+            event.get("double_click", False),
+        )
+
+        keyboard_input = event.get("keyboard_input", "")
+        if keyboard_input:
+            self.send_keyboard_input(keyboard_input, hwnd)
+
+        img = self.capture_thread.capture_window_image(hwnd)
+        if img is not None:
+            self.update_image_label(img)
+        self.capture_thread.hwnd = hwnd
+
+        return True
+
+    def send_click_event(self, relative_x, relative_y, hwnd, move_cursor, double_click):
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            logging.warning(f"Invalid hwnd: {hwnd}")
+            return
+
+        if move_cursor:
+
+            current_x, current_y = win32api.GetCursorPos()
+            screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+
+            # Determine direction to move (up or down)
+            move_direction = 10 if current_y == 0 else -10
+
+            # Calculate new y position
+            new_y = max(0, min(screen_height - 1, current_y + move_direction))
+
+            # Move cursor
+            win32api.SetCursorPos((current_x, new_y))
+            time.sleep(0.1)
+
+        lParam = win32api.MAKELONG(relative_x, relative_y)
+
+        try:
+            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+            time.sleep(0.1)
+            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+
+            if double_click:
+                time.sleep(0.1)
+                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+                time.sleep(0.1)
+                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+
+            logging.debug("Click event sent successfully.")
+        except Exception as e:
+            logging.error(f"Failed to send click event: {e}")
+
+    def send_keyboard_input(self, text, hwnd):
+        for char in text:
+            win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
+            time.sleep(0.05)
+
+    def check_image_presence(self, event, hwnd):
+        target_image_paths = event["image"].get("target_paths", [])
+        if not target_image_paths:
+            return False
+
+        current_image = self.capture_thread.capture_window_image(hwnd)
+        if current_image is None:
+            return False
+
+        for target_image_info in target_image_paths:
+            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
+            if target_image is None:
+                continue
+
+            result = cv2.matchTemplate(
+                current_image, target_image, cv2.TM_CCOEFF_NORMED
+            )
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+
+            if max_val >= event["image"].get("comparison_threshold", 0.6):
+                return True
+
+        return False
+
+    def move_cursor(self, x, y, hwnd):
+        screen_x, screen_y = win32gui.ClientToScreen(hwnd, (x, y))
+        win32api.SetCursorPos((screen_x, screen_y))
+
+    def init_emergency_stop(self):
+        def on_move(x, y):
+            if x == 0 and y == 0:  # Top-left corner
+                self.emergency_stop()
+
+        self.mouse_listener = mouse.Listener(on_move=on_move)
+        self.mouse_listener.start()
+
+    def emergency_stop(self):
+        logging.info("Emergency stop triggered!")
+        self.stop_script_execution()
+        QMessageBox.warning(
+            self, "Emergency Stop", "Script execution has been stopped."
+        )
+
+    def stop_script_execution(self):
+        # Implement logic to stop the script execution
+        self.set_buttons_enabled(True)
+        self.progress_bar.setValue(0)
+        logging.info("Script execution stopped.")
 
     def set_buttons_enabled(self, enabled):
         self.record_button.setEnabled(enabled)
@@ -844,46 +903,6 @@ class MouseTracker(QWidget):
         win32gui.EnumChildWindows(parent_hwnd, enum_child_proc, None)
         return child_windows
 
-    def send_click_event(self, relative_x, relative_y, hwnd, move_cursor):
-        if not hwnd or not win32gui.IsWindow(hwnd):
-            logging.warning(f"Invalid hwnd: {hwnd}")
-            return
-
-        lParam = win32api.MAKELONG(relative_x, relative_y)
-        if move_cursor:
-            now_x, now_y = win32api.GetCursorPos()
-            now_x += 10
-            now_y += 10
-            max_w, max_h = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
-            if now_x > max_w:
-                now_x -= 20
-            if now_y > max_h:
-                now_y -= 20
-
-            try:
-                win32api.SetCursorPos((now_x, now_y))
-                time.sleep(0.1)
-            except Exception as e:
-                logging.error(f"Failed to move cursor: {e}")
-
-        try:
-            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-            time.sleep(0.1)
-
-            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-            time.sleep(0.1)
-
-            logging.debug("Click event sent successfully.")
-        except Exception as e:
-            logging.error(f"Failed to send click event: {e}")
-
-    def activate_window(self, hwnd):
-        try:
-            win32gui.SendMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_CLICKACTIVE, 0)
-            time.sleep(0.1)
-        except Exception as e:
-            logging.error(f"Failed to activate window: {e}")
-
     @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
         win32api.PostMessage(hwnd, event_type, 0, lParam)
@@ -975,7 +994,6 @@ class MouseTracker(QWidget):
             self.status_bar.showMessage(f"Custom image set: {file_path}")
             logging.info(f"Custom image set: {file_path}")
 
-            # Add custom image to selected events
             for index in range(self.event_list.count()):
                 item = self.event_list.item(index)
                 if item.checkState() == Qt.Checked:
@@ -984,10 +1002,23 @@ class MouseTracker(QWidget):
                         event["custom_images"] = []
                     event["custom_images"].append(file_path)
 
-                    # Update the event in the QListWidget
                     self.event_list.item(index).setText(
                         f"{item.text()} [Custom Image Added]"
                     )
+
+    def show_event_settings(self):
+        selected_items = self.event_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "No Selection", "Please select an event to edit.")
+            return
+
+        selected_item = selected_items[0]
+        index = self.event_list.row(selected_item)
+        event = self.click_events[index]
+
+        dialog = EventSettingsDialog(event, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.status_bar.showMessage(f"Event settings updated for index {index}")
 
 
 if __name__ == "__main__":
