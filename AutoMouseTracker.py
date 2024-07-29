@@ -1,3 +1,20 @@
+import sys
+import os
+import time
+import uuid
+import json
+import logging
+import numpy as np
+import cv2
+from logging.handlers import RotatingFileHandler
+from pynput import mouse, keyboard
+from ctypes import windll
+import psutil
+import win32gui
+import win32process
+import win32api
+import win32con
+import win32ui
 from PyQt5.QtWidgets import (
     QApplication,
     QLabel,
@@ -23,36 +40,25 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
-import numpy as np
-import cv2
-import logging
-import json
-import time
-import os
-import uuid
-import sys
-from ctypes import windll
-import psutil
-import win32gui
-import win32process
-import win32api
-import win32con
-import win32ui
-from pynput import mouse, keyboard
-from logging.handlers import RotatingFileHandler
 
 # Constants
 WM_MOUSEMOVE = 0x0200
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
+WM_RBUTTONDOWN = 0x0204
+WM_RBUTTONUP = 0x0205
 LOG_FILE = "mouse_tracker.log"
 
-# Logging configuration
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
-)
+
+def configure_logging():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
+    )
+
+
+configure_logging()
 
 
 class ImageCaptureThread(QThread):
@@ -109,7 +115,6 @@ class ImageCaptureThread(QThread):
             result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
 
             if result == 0:
-                print(f"PrintWindow failed, trying BitBlt")
                 windll.gdi32.BitBlt(
                     saveDC.GetSafeHdc(),
                     0,
@@ -144,7 +149,7 @@ class ImageCaptureThread(QThread):
 
 class EventSettingsDialog(QDialog):
     def __init__(self, event, parent=None):
-        super(EventSettingsDialog, self).__init__(parent)
+        super().__init__(parent)
         self.event = event
         self.init_ui()
 
@@ -167,6 +172,12 @@ class EventSettingsDialog(QDialog):
         self.double_click_checkbox = QCheckBox("Double Click")
         self.double_click_checkbox.setChecked(self.event.get("double_click", False))
         layout.addWidget(self.double_click_checkbox)
+
+        self.ignore_pos_size_checkbox = QCheckBox("Ignore Position and Size")
+        self.ignore_pos_size_checkbox.setChecked(
+            self.event.get("ignore_pos_size", False)
+        )
+        layout.addWidget(self.ignore_pos_size_checkbox)
 
         keyboard_layout = QHBoxLayout()
         keyboard_layout.addWidget(QLabel("Keyboard Input:"))
@@ -212,6 +223,7 @@ class EventSettingsDialog(QDialog):
         self.event["move_cursor"] = self.move_cursor_checkbox.isChecked()
         self.event["click_delay"] = self.delay_spinbox.value()
         self.event["double_click"] = self.double_click_checkbox.isChecked()
+        self.event["ignore_pos_size"] = self.ignore_pos_size_checkbox.isChecked()
         self.event["keyboard_input"] = self.keyboard_input.text()
         self.event["condition"] = self.condition_combo.currentText()
         self.event["repeat_count"] = self.repeat_spinbox.value()
@@ -363,7 +375,7 @@ class MouseTracker(QWidget):
                 if hwnd:
                     self.print_window_hierarchy(hwnd)
                 if pressed and self.recording and not self.is_own_window(hwnd):
-                    self.record_click_event(x, y, hwnd, move_cursor=False)
+                    self.record_click_event(x, y, hwnd, button, move_cursor=False)
             except Exception as e:
                 logging.error(f"Error in on_click: {e}")
 
@@ -377,7 +389,7 @@ class MouseTracker(QWidget):
         elif key == keyboard.Key.f10:
             self.play_script()
 
-    def record_click_event(self, x, y, hwnd, move_cursor):
+    def record_click_event(self, x, y, hwnd, button, move_cursor):
         if hwnd == self.current_program_hwnd or self.is_own_window(hwnd):
             return
         window_rect = win32gui.GetWindowRect(hwnd)
@@ -440,6 +452,7 @@ class MouseTracker(QWidget):
             "time": time.time() - self.start_time,
             "window_rect": window_rect,
             "move_cursor": move_cursor,
+            "button": button.name,  # Change here to record button type
             "image": {
                 "path": full_path,
                 "target_paths": target_image_paths,
@@ -460,7 +473,7 @@ class MouseTracker(QWidget):
         logging.info(f"Recording click event: {event_info}")
         self.click_events.append(event_info)
         list_item = QListWidgetItem(
-            f"Click at ({relative_x}, {relative_y}) in {current_program} ({window_title})"
+            f"{button.name} click at ({relative_x}, {relative_y}) in {current_program} ({window_title})"
         )
         list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
         list_item.setCheckState(Qt.Unchecked)
@@ -512,9 +525,13 @@ class MouseTracker(QWidget):
         window_name = win32gui.GetWindowText(hwnd)
         if window_name == "":
             window_name = "None"
-        window_class = win32gui.GetClassName(hwnd)
-        if window_class == "":
-            window_class = "None"
+        try:
+            window_class = win32gui.GetClassName(hwnd)
+            if window_class == "":
+                window_class = "None"
+        except Exception as e:
+            logging.error(f"Error getting window class: {e}")
+            window_class = "Invalid hwnd"
 
         self.program_label.setText(
             f"Current Program: {current_program} ({program_path})"
@@ -568,7 +585,7 @@ class MouseTracker(QWidget):
             self.event_list.clear()
             for event in self.click_events:
                 list_item = QListWidgetItem(
-                    f"Click at ({event['relative_x']}, {event['relative_y']}) in {event['program_name']}"
+                    f"{event['button']} click at ({event['relative_x']}, {event['relative_y']}) in {event['program_name']}"
                 )
                 list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
                 list_item.setCheckState(Qt.Unchecked)
@@ -655,6 +672,7 @@ class MouseTracker(QWidget):
             hwnd,
             event["move_cursor"],
             event.get("double_click", False),
+            event["button"],
         )
 
         keyboard_input = event.get("keyboard_input", "")
@@ -668,38 +686,47 @@ class MouseTracker(QWidget):
 
         return True
 
-    def send_click_event(self, relative_x, relative_y, hwnd, move_cursor, double_click):
+    def send_click_event(
+        self, relative_x, relative_y, hwnd, move_cursor, double_click, button
+    ):
         if not hwnd or not win32gui.IsWindow(hwnd):
             logging.warning(f"Invalid hwnd: {hwnd}")
             return
 
         if move_cursor:
-
             current_x, current_y = win32api.GetCursorPos()
             screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
 
-            # Determine direction to move (up or down)
             move_direction = 10 if current_y == 0 else -10
-
-            # Calculate new y position
             new_y = max(0, min(screen_height - 1, current_y + move_direction))
-
-            # Move cursor
             win32api.SetCursorPos((current_x, new_y))
             time.sleep(0.1)
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
 
-        try:
-            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-            time.sleep(0.1)
-            self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+        print(button)
 
-            if double_click:
-                time.sleep(0.1)
+        try:
+            if button == "left":
                 self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
                 time.sleep(0.1)
                 self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+
+                if double_click:
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+            elif button == "right":
+                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+                time.sleep(0.1)
+                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
+
+                if double_click:
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
 
             logging.debug("Click event sent successfully.")
         except Exception as e:
@@ -733,10 +760,6 @@ class MouseTracker(QWidget):
                 return True
 
         return False
-
-    def move_cursor(self, x, y, hwnd):
-        screen_x, screen_y = win32gui.ClientToScreen(hwnd, (x, y))
-        win32api.SetCursorPos((screen_x, screen_y))
 
     def init_emergency_stop(self):
         def on_move(x, y):
@@ -776,6 +799,7 @@ class MouseTracker(QWidget):
                 event["program_path"],
                 event["window_title"],
                 event["window_rect"],
+                event.get("ignore_pos_size", False),
             )
             if hwnds:
                 return hwnds[0]
@@ -804,6 +828,7 @@ class MouseTracker(QWidget):
         program_path=None,
         window_title=None,
         window_rect=None,
+        ignore_pos_size=False,
     ):
         hwnds = []
 
@@ -821,7 +846,7 @@ class MouseTracker(QWidget):
                 name_match = window_name == window_text if window_name else True
                 title_match = window_title == window_text if window_title else True
                 rect_match = True
-                if window_rect:
+                if window_rect and not ignore_pos_size:
                     rect = win32gui.GetWindowRect(hwnd)
                     rect_match = (
                         window_rect[0] == rect[0]
@@ -846,6 +871,7 @@ class MouseTracker(QWidget):
                         current_depth + 1,
                         window_title,
                         window_rect,
+                        ignore_pos_size,
                     )
                 )
             return True
@@ -896,6 +922,7 @@ class MouseTracker(QWidget):
         current_depth=0,
         window_title=None,
         window_rect=None,
+        ignore_pos_size=False,
     ):
         child_windows = []
 
@@ -915,7 +942,7 @@ class MouseTracker(QWidget):
                 window_title == win32gui.GetWindowText(hwnd) if window_title else True
             )
             rect_match = True
-            if window_rect:
+            if window_rect and not ignore_pos_size:
                 rect = win32gui.GetWindowRect(hwnd)
                 rect_match = (
                     window_rect[0] == rect[0]
@@ -934,6 +961,7 @@ class MouseTracker(QWidget):
                         current_depth + 1,
                         window_title,
                         window_rect,
+                        ignore_pos_size,
                     )
                 )
             return True
@@ -1022,12 +1050,6 @@ class MouseTracker(QWidget):
         else:
             self.setStyleSheet("background-color: #FFFFFF; color: #000000;")
 
-    def init_custom_image_ui(self):
-        self.add_custom_image_button = self.create_button(
-            "Add Custom Image", "icons/custom_image.png", self.add_custom_image
-        )
-        self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
-
     def add_custom_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open Image File", "", "Image Files (*.png *.jpg *.bmp)"
@@ -1044,7 +1066,6 @@ class MouseTracker(QWidget):
                     if "custom_images" not in event:
                         event["custom_images"] = []
                     event["custom_images"].append(file_path)
-
                     self.event_list.item(index).setText(
                         f"{item.text()} [Custom Image Added]"
                     )
