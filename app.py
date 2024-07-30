@@ -1,5 +1,5 @@
 import os
-from tkinter import filedialog, Listbox, Scrollbar
+from tkinter import filedialog, Listbox, TclError
 import customtkinter as ctk
 from dotenv import load_dotenv
 import subprocess
@@ -16,56 +16,80 @@ class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items):
         super().__init__(parent)
         self.title("순서 선택")
-        self.geometry("400x500")
+        self.geometry("500x600")
+        self.configure(fg_color="#2b2b2b")  # Match main app background
 
         self.checked_items = checked_items
+        self.create_widgets()
         
+        # Make the widget appear on top
+        self.lift()
+        self.focus_force()
+        self.grab_set()
+        self.attributes('-topmost', True)
+
+    def create_widgets(self):
+        # Title
+        title_label = ctk.CTkLabel(self, text="선택된 항목 순서 조정", font=("Roboto Medium", 20))
+        title_label.pack(pady=(20, 10))
+
         # Frame for listbox and scrollbar
         list_frame = ctk.CTkFrame(self)
-        list_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        list_frame.pack(pady=10, padx=20, fill="both", expand=True)
 
         # Listbox with scrollbar
-        self.listbox = Listbox(list_frame, width=50, height=20)
+        self.listbox = Listbox(list_frame, width=50, height=20, bg="#2b2b2b", fg="white", selectbackground="#1f6aa5")
         self.listbox.pack(side="left", fill="both", expand=True)
 
-        scrollbar = Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        scrollbar = ctk.CTkScrollbar(list_frame, command=self.listbox.yview)
         scrollbar.pack(side="right", fill="y")
 
-        self.listbox.config(yscrollcommand=scrollbar.set)
+        self.listbox.configure(yscrollcommand=scrollbar.set)
 
-        for item in checked_items:
-            self.listbox.insert(ctk.END, item)
+        for item in self.checked_items:
+            self.listbox.insert("end", item)
 
-        self.up_button = ctk.CTkButton(self, text="위로", command=self.move_up)
-        self.up_button.pack(side=ctk.LEFT, padx=10, pady=10)
+        # Button frame
+        button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        button_frame.pack(pady=20, fill="x")
 
-        self.down_button = ctk.CTkButton(self, text="아래로", command=self.move_down)
-        self.down_button.pack(side=ctk.LEFT, padx=10, pady=10)
+        self.up_button = ctk.CTkButton(button_frame, text="위로", command=self.move_up, width=100)
+        self.up_button.pack(side="left", padx=10)
 
-        self.start_button = ctk.CTkButton(self, text="시작", command=self.start_program)
-        self.start_button.pack(side=ctk.RIGHT, padx=10, pady=10)
+        self.down_button = ctk.CTkButton(button_frame, text="아래로", command=self.move_down, width=100)
+        self.down_button.pack(side="left", padx=10)
+
+        self.start_button = ctk.CTkButton(button_frame, text="시작", command=self.start_program, width=100)
+        self.start_button.pack(side="right", padx=10)
 
     def move_up(self):
-        selected = self.listbox.curselection()
-        if selected and selected[0] > 0:
-            text = self.listbox.get(selected[0])
-            self.listbox.delete(selected[0])
-            self.listbox.insert(selected[0] - 1, text)
-            self.listbox.select_set(selected[0] - 1)
+        try:
+            selected = self.listbox.curselection()[0]
+            if selected > 0:
+                text = self.listbox.get(selected)
+                self.listbox.delete(selected)
+                self.listbox.insert(selected - 1, text)
+                self.listbox.select_set(selected - 1)
+        except (IndexError, TclError):
+            pass  # No item selected or other Tcl error
 
     def move_down(self):
-        selected = self.listbox.curselection()
-        if selected and selected[0] < self.listbox.size() - 1:
-            text = self.listbox.get(selected[0])
-            self.listbox.delete(selected[0])
-            self.listbox.insert(selected[0] + 1, text)
-            self.listbox.select_set(selected[0] + 1)
+        try:
+            selected = self.listbox.curselection()[0]
+            if selected < self.listbox.size() - 1:
+                text = self.listbox.get(selected)
+                self.listbox.delete(selected)
+                self.listbox.insert(selected + 1, text)
+                self.listbox.select_set(selected + 1)
+        except (IndexError, TclError):
+            pass  # No item selected or other Tcl error
 
     def start_program(self):
-        ordered_items = self.listbox.get(0, ctk.END)
+        ordered_items = self.listbox.get(0, "end")
         print("순서:", ordered_items)
         # 여기에 특정 프로그램을 실행하는 코드를 추가하세요
         # 예: subprocess.run(["프로그램_경로", "인자1", "인자2"])
+        self.grab_release()
         self.destroy()
 
 class App(SingletonApp, ctk.CTk):
