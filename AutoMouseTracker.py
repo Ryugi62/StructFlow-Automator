@@ -704,8 +704,6 @@ class MouseTracker(QWidget):
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
 
-        print(button)
-
         try:
             if button == "left":
                 self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
@@ -833,7 +831,11 @@ class MouseTracker(QWidget):
         hwnds = []
 
         def callback(hwnd, _):
-            if not win32gui.IsWindow(hwnd):
+            if (
+                not win32gui.IsWindow(hwnd)
+                or not win32gui.IsWindowEnabled(hwnd)
+                or not win32gui.IsWindowVisible(hwnd)
+            ):
                 return True
             current_depth = self.get_window_depth(hwnd)
             if current_depth > depth:
@@ -899,6 +901,8 @@ class MouseTracker(QWidget):
         hwnds = []
 
         def callback(hwnd, _):
+            if not win32gui.IsWindowEnabled(hwnd) or not win32gui.IsWindowVisible(hwnd):
+                return True
             _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
             if self.is_valid_process(found_pid, program_name, program_path):
                 class_name = win32gui.GetClassName(hwnd)
@@ -927,7 +931,11 @@ class MouseTracker(QWidget):
         child_windows = []
 
         def enum_child_proc(hwnd, _):
-            if not win32gui.IsWindow(hwnd):
+            if (
+                not win32gui.IsWindow(hwnd)
+                or not win32gui.IsWindowEnabled(hwnd)
+                or not win32gui.IsWindowVisible(hwnd)
+            ):
                 return True
             match_class = (
                 window_class in win32gui.GetClassName(hwnd) if window_class else True
