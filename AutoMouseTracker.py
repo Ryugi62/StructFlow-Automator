@@ -3,6 +3,7 @@ import os
 import time
 import uuid
 import json
+import shutil
 import logging
 import numpy as np
 import cv2
@@ -48,6 +49,11 @@ WM_LBUTTONUP = 0x0202
 WM_RBUTTONDOWN = 0x0204
 WM_RBUTTONUP = 0x0205
 LOG_FILE = "mouse_tracker.log"
+SAMPLE_TARGETS_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "StructFlow-Automator-Private",
+    "sample_targets",
+)
 
 
 def configure_logging():
@@ -179,6 +185,18 @@ class EventSettingsDialog(QDialog):
         )
         layout.addWidget(self.ignore_pos_size_checkbox)
 
+        self.auto_update_target_checkbox = QCheckBox("Auto Update Target Position")
+        self.auto_update_target_checkbox.setChecked(
+            self.event.get("auto_update_target", False)
+        )
+        layout.addWidget(self.auto_update_target_checkbox)
+
+        self.image_list = QListWidget()
+        self.load_image_button = QPushButton("Load Image")
+        self.load_image_button.clicked.connect(self.load_image)
+        layout.addWidget(self.image_list)
+        layout.addWidget(self.load_image_button)
+
         keyboard_layout = QHBoxLayout()
         keyboard_layout.addWidget(QLabel("Keyboard Input:"))
         self.keyboard_input = QLineEdit(self.event.get("keyboard_input", ""))
@@ -191,14 +209,24 @@ class EventSettingsDialog(QDialog):
         self.condition_combo.addItems(
             [
                 "None",
-                "Image Present",
-                "Image Not Present",
-                "Wait up to 5 minutes for Image",
+                "이미지가 있으면 스킵",
+                "이미지가 없으면 스킵",
+                "이미지 찾을때까지 계속 기다리기",
             ]
         )
         self.condition_combo.setCurrentText(self.event.get("condition", "None"))
         condition_layout.addWidget(self.condition_combo)
         layout.addLayout(condition_layout)
+
+        similarity_layout = QHBoxLayout()
+        similarity_layout.addWidget(QLabel("Image Similarity Threshold:"))
+        self.similarity_slider = QSlider(Qt.Horizontal)
+        self.similarity_slider.setRange(0, 100)
+        self.similarity_slider.setValue(int(self.event.get("similarity_threshold", 60)))
+        self.similarity_slider.setTickPosition(QSlider.TicksBelow)
+        self.similarity_slider.setTickInterval(10)
+        similarity_layout.addWidget(self.similarity_slider)
+        layout.addLayout(similarity_layout)
 
         repeat_layout = QHBoxLayout()
         repeat_layout.addWidget(QLabel("Repeat Count:"))
@@ -219,14 +247,31 @@ class EventSettingsDialog(QDialog):
 
         self.setLayout(layout)
 
+    def load_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Open Image File", "", "Image Files (*.png *.jpg *.bmp)"
+        )
+        if file_path:
+            # Copy the image to the sample_targets directory
+            if not os.path.exists(SAMPLE_TARGETS_DIR):
+                os.makedirs(SAMPLE_TARGETS_DIR)
+            dest_path = os.path.join(SAMPLE_TARGETS_DIR, os.path.basename(file_path))
+            shutil.copy(file_path, dest_path)
+            self.image_list.addItem(dest_path)
+
     def save_settings(self):
         self.event["move_cursor"] = self.move_cursor_checkbox.isChecked()
         self.event["click_delay"] = self.delay_spinbox.value()
         self.event["double_click"] = self.double_click_checkbox.isChecked()
         self.event["ignore_pos_size"] = self.ignore_pos_size_checkbox.isChecked()
+        self.event["auto_update_target"] = self.auto_update_target_checkbox.isChecked()
         self.event["keyboard_input"] = self.keyboard_input.text()
         self.event["condition"] = self.condition_combo.currentText()
         self.event["repeat_count"] = self.repeat_spinbox.value()
+        self.event["similarity_threshold"] = self.similarity_slider.value() / 100.0
+        self.event["image_paths"] = [
+            str(self.image_list.item(i).text()) for i in range(self.image_list.count())
+        ]
         self.accept()
 
 
@@ -409,11 +454,7 @@ class MouseTracker(QWidget):
             image_filename = (
                 f"{current_program}_{unique_id}_{relative_x}_{relative_y}.png"
             )
-            save_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "StructFlow-Automator-Private",
-                "sample_targets",
-            )
+            save_dir = SAMPLE_TARGETS_DIR
             os.makedirs(save_dir, exist_ok=True)
             full_path = os.path.join(save_dir, image_filename)
             cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
@@ -452,7 +493,7 @@ class MouseTracker(QWidget):
             "time": time.time() - self.start_time,
             "window_rect": window_rect,
             "move_cursor": move_cursor,
-            "button": button.name,  # Change here to record button type
+            "button": button.name,
             "image": {
                 "path": full_path,
                 "target_paths": target_image_paths,
@@ -464,7 +505,7 @@ class MouseTracker(QWidget):
                 "wait_for_image": True,
                 "wait_method": "image",
                 "window_title": window_title,
-                "comparison_threshold": 0.6,
+                "comparison_threshold": 0.6,  # 기본값으로 설정
             },
         }
 
@@ -616,22 +657,29 @@ class MouseTracker(QWidget):
 
             event = self.click_events[index]
 
-            if event.get("condition") == "Wait up to 5 minutes for Image":
-                start_time = time.time()
-                while time.time() - start_time <= 300:
+            if event.get("condition") == "이미지 찾을때까지 계속 기다리기":
+                while True:
                     try:
                         hwnd = self.find_target_hwnd(event)
                         if hwnd and self.check_image_presence(event, hwnd):
-                            logging.info("Image found within 5 minutes.")
+                            logging.info("Image found.")
                             break
                     except RuntimeError:
                         logging.warning("Target hwnd not found, retrying...")
                     time.sleep(1)
-                else:
-                    logging.warning(
-                        "Image not found within 5 minutes, stopping script."
-                    )
-                    self.stop_script_execution()
+
+            if event.get("condition") == "이미지가 있으면 스킵":
+                hwnd = self.find_target_hwnd(event)
+                if hwnd and self.check_image_presence(event, hwnd):
+                    logging.info("Image found, skipping click.")
+                    QTimer.singleShot(500, lambda: process_event(index + 1))
+                    return
+
+            if event.get("condition") == "이미지가 없으면 스킵":
+                hwnd = self.find_target_hwnd(event)
+                if hwnd and not self.check_image_presence(event, hwnd):
+                    logging.info("Image not found, skipping click.")
+                    QTimer.singleShot(500, lambda: process_event(index + 1))
                     return
 
             repeat_count = event.get("repeat_count", 1)
@@ -665,6 +713,20 @@ class MouseTracker(QWidget):
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
             time.sleep(click_delay / 1000)
+
+        if event.get("auto_update_target", False):
+            img = self.capture_thread.capture_window_image(hwnd)
+            if img is not None:
+                for image_path in event.get("image_paths", []):
+                    target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+                    if target_image is not None:
+                        result = cv2.matchTemplate(
+                            img, target_image, cv2.TM_CCOEFF_NORMED
+                        )
+                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+                        if max_val >= event.get("similarity_threshold", 0.6):
+                            event["relative_x"], event["relative_y"] = max_loc
+                            break
 
         self.send_click_event(
             event["relative_x"],
@@ -703,9 +765,22 @@ class MouseTracker(QWidget):
             time.sleep(0.1)
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
+        
+        if win32gui.GetClassName(hwnd) == "#32768":
+            # 윈도우의 절대 좌표 얻기
+            left, top, _, _ = win32gui.GetWindowRect(hwnd)
+            # 화면 좌표로 변환
+            screen_x, screen_y = left + relative_x, top + relative_y
+
+            # 클릭 전 잠시 대기
+            time.sleep(0.5)
+
+            lParam = win32api.MAKELONG(screen_x, screen_y)
 
         try:
+            print(hwnd, relative_x, relative_y, button)
             if button == "left":
+
                 self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
                 time.sleep(0.1)
                 self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
@@ -744,6 +819,7 @@ class MouseTracker(QWidget):
         if current_image is None:
             return False
 
+        similarity_threshold = event.get("similarity_threshold", 0.6)
         for target_image_info in target_image_paths:
             target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
             if target_image is None:
@@ -754,7 +830,7 @@ class MouseTracker(QWidget):
             )
             _, max_val, _, _ = cv2.minMaxLoc(result)
 
-            if max_val >= event["image"].get("comparison_threshold", 0.6):
+            if max_val >= similarity_threshold:
                 return True
 
         return False
@@ -979,7 +1055,12 @@ class MouseTracker(QWidget):
 
     @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
-        win32api.PostMessage(hwnd, event_type, 0, lParam)
+        if event_type == win32con.WM_LBUTTONDOWN:
+            win32gui.PostMessage(hwnd, event_type, win32con.MK_LBUTTON, lParam)
+        elif event_type == win32con.WM_RBUTTONDOWN:
+            win32gui.PostMessage(hwnd, event_type, win32con.MK_RBUTTON, lParam)
+        else:
+            win32gui.PostMessage(hwnd, event_type, 0, lParam)
 
     def update_speed_factor(self, value):
         self.speed_factor = max(0.1, value / 50.0)
