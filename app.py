@@ -1,8 +1,8 @@
 import os
-from tkinter import filedialog
+from tkinter import filedialog, Listbox, Scrollbar
 import customtkinter as ctk
 from dotenv import load_dotenv
-
+import subprocess
 
 class SingletonApp:
     _instance = None
@@ -12,6 +12,61 @@ class SingletonApp:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
 
+class OrderSelectionWidget(ctk.CTkToplevel):
+    def __init__(self, parent, checked_items):
+        super().__init__(parent)
+        self.title("순서 선택")
+        self.geometry("400x500")
+
+        self.checked_items = checked_items
+        
+        # Frame for listbox and scrollbar
+        list_frame = ctk.CTkFrame(self)
+        list_frame.pack(pady=20, padx=20, fill="both", expand=True)
+
+        # Listbox with scrollbar
+        self.listbox = Listbox(list_frame, width=50, height=20)
+        self.listbox.pack(side="left", fill="both", expand=True)
+
+        scrollbar = Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+
+        self.listbox.config(yscrollcommand=scrollbar.set)
+
+        for item in checked_items:
+            self.listbox.insert(ctk.END, item)
+
+        self.up_button = ctk.CTkButton(self, text="위로", command=self.move_up)
+        self.up_button.pack(side=ctk.LEFT, padx=10, pady=10)
+
+        self.down_button = ctk.CTkButton(self, text="아래로", command=self.move_down)
+        self.down_button.pack(side=ctk.LEFT, padx=10, pady=10)
+
+        self.start_button = ctk.CTkButton(self, text="시작", command=self.start_program)
+        self.start_button.pack(side=ctk.RIGHT, padx=10, pady=10)
+
+    def move_up(self):
+        selected = self.listbox.curselection()
+        if selected and selected[0] > 0:
+            text = self.listbox.get(selected[0])
+            self.listbox.delete(selected[0])
+            self.listbox.insert(selected[0] - 1, text)
+            self.listbox.select_set(selected[0] - 1)
+
+    def move_down(self):
+        selected = self.listbox.curselection()
+        if selected and selected[0] < self.listbox.size() - 1:
+            text = self.listbox.get(selected[0])
+            self.listbox.delete(selected[0])
+            self.listbox.insert(selected[0] + 1, text)
+            self.listbox.select_set(selected[0] + 1)
+
+    def start_program(self):
+        ordered_items = self.listbox.get(0, ctk.END)
+        print("순서:", ordered_items)
+        # 여기에 특정 프로그램을 실행하는 코드를 추가하세요
+        # 예: subprocess.run(["프로그램_경로", "인자1", "인자2"])
+        self.destroy()
 
 class App(SingletonApp, ctk.CTk):
     WINDOW_GEOMETRY = "1280x768"
@@ -33,6 +88,7 @@ class App(SingletonApp, ctk.CTk):
         self.address_entry = None
         self.tab_buttons = {}
         self.tabs_content = {}
+        self.checkboxes = {}
         self.configure_gui()
         self.create_layout()
         self.show_tab(1)
@@ -84,7 +140,9 @@ class App(SingletonApp, ctk.CTk):
 
     def create_tab_content_new(self, parent):
         frame = ctk.CTkFrame(parent, width=1100, height=728, fg_color="#2b2b2b")
-        frame.configure(bg_color="#2b2b2b")
+        frame.grid(sticky="nsew")
+        frame.grid_propagate(False)
+
         sections = [
             ("기본 정보", 0.05, self.add_basic_info_labels_and_entries, 0.05),
             ("모델링 형태", 0.55, self.add_modeling_type_checkboxes, 0.05),
@@ -93,12 +151,15 @@ class App(SingletonApp, ctk.CTk):
             ("건물 정보", 0.05, self.add_advanced_building_info, 0.7),
             ("태양광 기타해석", 0.55, self.add_analysis_options, 0.7),
         ]
+
         for section in sections:
             text, rel_y, func, rel_x = section
             self.add_section_label(frame, text, rel_y, rel_x)
-            func(frame)
+            func(frame, rel_y, rel_x)
+
         self.add_log_box(frame)
         self.add_create_button(frame)
+
         return frame
 
     def add_section_label(self, parent, text, y, x=0.05):
@@ -112,8 +173,8 @@ class App(SingletonApp, ctk.CTk):
             entry_widget.delete(0, "end")
             entry_widget.insert(0, folder_path)
 
-    def add_basic_info_labels_and_entries(self, parent):
-        y_offset = 0.15
+    def add_basic_info_labels_and_entries(self, parent, start_y, start_x):
+        y_offset = start_y + 0.1
         for label in self.BASIC_INFO_LABELS:
             entry = ctk.CTkEntry(parent, width=180)
             if label == "폴더 위치":
@@ -125,42 +186,45 @@ class App(SingletonApp, ctk.CTk):
                     command=lambda e=entry: self.open_folder_dialog(e),
                     width=10,
                 )
-                button.place(relx=0.25, rely=y_offset, anchor=ctk.W)
-            entry.place(relx=0.15, rely=y_offset, anchor=ctk.W)
+                button.place(relx=start_x + 0.2, rely=y_offset, anchor=ctk.W)
+            entry.place(relx=start_x + 0.1, rely=y_offset, anchor=ctk.W)
             ctk.CTkLabel(parent, text=label).place(
-                relx=0.05, rely=y_offset, anchor=ctk.W
+                relx=start_x, rely=y_offset, anchor=ctk.W
             )
             y_offset += 0.075
 
-    def add_modeling_type_checkboxes(self, parent):
-        y_offset = 0.65
+    def add_modeling_type_checkboxes(self, parent, start_y, start_x):
+        y_offset = start_y + 0.1
         options = ["타입분할", "건물 / 태양광 통합"]
-        for i, option in enumerate(options):
-            ctk.CTkCheckBox(parent, text=option).place(
-                relx=0.05, rely=y_offset + 0.075 * i, anchor=ctk.W
-            )
+        for option in options:
+            checkbox = ctk.CTkCheckBox(parent, text=option)
+            checkbox.place(relx=start_x, rely=y_offset, anchor=ctk.W)
+            self.checkboxes[option] = checkbox
+            y_offset += 0.075
 
-    def add_division_settings(self, parent):
+    def add_division_settings(self, parent, start_y, start_x):
         labels = ["크레인", "지진", "바닥 활하중", "기타 고정하중", "펄린"]
-        self.add_checkboxes(parent, labels, 0.4, 0.15)
+        self.add_checkboxes(parent, labels, start_y, start_x)
 
-    def add_solar_type_checkboxes(self, parent):
+    def add_solar_type_checkboxes(self, parent, start_y, start_x):
         labels = ["기본형", "부착형", "알류미늄"]
-        self.add_checkboxes(parent, labels, 0.4, 0.65)
+        self.add_checkboxes(parent, labels, start_y, start_x)
 
-    def add_advanced_building_info(self, parent):
+    def add_advanced_building_info(self, parent, start_y, start_x):
         labels = ["토지위(푸팅)", "토지위(파일)", "슬라브위", "건물위"]
-        self.add_checkboxes(parent, labels, 0.7, 0.15)
+        self.add_checkboxes(parent, labels, start_y, start_x)
 
-    def add_analysis_options(self, parent):
+    def add_analysis_options(self, parent, start_y, start_x):
         labels = ["접합부", "안전로프"]
-        self.add_checkboxes(parent, labels, 0.7, 0.65)
+        self.add_checkboxes(parent, labels, start_y, start_x)
 
-    def add_checkboxes(self, parent, labels, relx, start_y):
-        for i, label in enumerate(labels):
-            ctk.CTkCheckBox(parent, text=label).place(
-                relx=relx, rely=start_y + 0.075 * i, anchor=ctk.W
-            )
+    def add_checkboxes(self, parent, labels, start_y, start_x):
+        y_offset = start_y + 0.1
+        for label in labels:
+            checkbox = ctk.CTkCheckBox(parent, text=label)
+            checkbox.place(relx=start_x, rely=y_offset, anchor=ctk.W)
+            self.checkboxes[label] = checkbox
+            y_offset += 0.075
 
     def add_log_box(self, parent):
         log_frame = ctk.CTkFrame(parent, width=850, height=20, fg_color="#2b2b2b")
@@ -169,9 +233,15 @@ class App(SingletonApp, ctk.CTk):
         self.log_box.pack()
 
     def add_create_button(self, parent):
-        create_button = ctk.CTkButton(parent, text="생성", height=90)
+        create_button = ctk.CTkButton(parent, text="생성", height=90, command=self.open_order_selection)
         create_button.place(relx=0.9, rely=0.91, anchor=ctk.CENTER)
 
+    def open_order_selection(self):
+        checked_items = [label for label, checkbox in self.checkboxes.items() if checkbox.get()]
+        if checked_items:
+            OrderSelectionWidget(self, checked_items)
+        else:
+            print("체크된 항목이 없습니다.")
 
 if __name__ == "__main__":
     app = App()
