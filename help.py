@@ -1,127 +1,137 @@
-import sys
-import logging
 import win32gui
-import win32process
-import psutil
-import win32api
-import win32con
+import ctypes
 from pynput import mouse
-from PyQt5.QtWidgets import (
-    QApplication,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-    QTextEdit,
-    QMainWindow,
-    QPushButton,
-)
-from PyQt5.QtCore import Qt
-
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+from pywinauto import Desktop, Application
+from tkinter import Tk, messagebox
+import json
 
 
-class WindowInfoExtractor(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.init_ui()
-        self.mouse_listener = mouse.Listener(on_click=self.on_click)
-        self.mouse_listener.start()
+def get_window_info(hwnd):
+    """주어진 HWND의 윈도우 정보를 가져오는 함수"""
+    if hwnd:
+        window_text = win32gui.GetWindowText(hwnd)
+        window_class = win32gui.GetClassName(hwnd)
+        rect = win32gui.GetWindowRect(hwnd)
 
-    def init_ui(self):
-        self.setWindowTitle("Window Info Extractor")
-        self.setGeometry(100, 100, 800, 600)
+        # DWM API를 사용하여 확장된 프레임 경계를 가져옴
+        rect_extended = ctypes.wintypes.RECT()
+        DWMWA_EXTENDED_FRAME_BOUNDS = 9
+        dwmapi = ctypes.WinDLL("dwmapi")
+        dwmapi.DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            ctypes.byref(rect_extended),
+            ctypes.sizeof(rect_extended),
+        )
 
-        self.info_display = QTextEdit(self)
-        self.info_display.setReadOnly(True)
-        self.info_display.setGeometry(10, 10, 780, 540)
+        return {
+            "HWND": hwnd,
+            "Title": window_text,
+            "Class": window_class,
+            "Position": rect,
+            "Extended Frame Bounds": (
+                rect_extended.left,
+                rect_extended.top,
+                rect_extended.right,
+                rect_extended.bottom,
+            ),
+        }
+    else:
+        return None
 
-        self.clear_button = QPushButton("Clear", self)
-        self.clear_button.setGeometry(350, 560, 100, 30)
-        self.clear_button.clicked.connect(self.clear_display)
 
-    def clear_display(self):
-        self.info_display.clear()
+def get_control_info(control):
+    """주어진 컨트롤의 상세 정보를 가져오는 함수"""
+    try:
+        rectangle = control.rectangle()
+        mid_point = rectangle.mid_point()
+        rect_dict = {
+            "left": rectangle.left,
+            "top": rectangle.top,
+            "right": rectangle.right,
+            "bottom": rectangle.bottom,
+            "mid_point": {"x": mid_point.x, "y": mid_point.y},
+        }
+    except:
+        rect_dict = "N/A"
 
-    def on_click(self, x, y, button, pressed):
-        if pressed:
-            hwnd = win32gui.WindowFromPoint((x, y))
-            if hwnd:
-                info = self.get_window_info(hwnd)
-                self.display_info(info)
+    info = {
+        "Control Type": control.friendly_class_name(),
+        "Control Text": control.window_text(),
+        "Is Visible": safe_get_attribute(control, "is_visible"),
+        "Is Enabled": safe_get_attribute(control, "is_enabled"),
+        "Rectangle": rect_dict,
+        "Automation Id": safe_get_attribute(control, "automation_id"),
+        "Control Id": safe_get_attribute(control, "control_id"),
+        "Is Keyboard Focusable": safe_get_attribute(control, "is_keyboard_focusable"),
+        "Is Offscreen": safe_get_attribute(control, "is_offscreen"),
+        "Control Type (legacy)": control.legacy_properties().get("ControlType", "N/A"),
+    }
+    return info
 
-    def get_window_info(self, hwnd):
-        try:
-            window_text = win32gui.GetWindowText(hwnd)
-            class_name = win32gui.GetClassName(hwnd)
-            window_rect = win32gui.GetWindowRect(hwnd)
-            style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-            ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-            thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
-            process = psutil.Process(pid)
-            process_name = process.name()
-            process_exe = process.exe()
-            parent_hwnd = win32gui.GetParent(hwnd)
-            menu = win32gui.GetMenu(hwnd)
-            children = []
-            win32gui.EnumChildWindows(
-                hwnd, lambda child_hwnd, param: param.append(child_hwnd), children
-            )
 
-            def bool_to_str(value):
-                return "Yes" if value else "No"
+def safe_get_attribute(control, attribute):
+    """컨트롤 속성을 안전하게 가져오는 함수"""
+    try:
+        return getattr(control, attribute)()
+    except Exception:
+        return "N/A"
 
-            def is_maximized(hwnd):
-                placement = win32gui.GetWindowPlacement(hwnd)
-                return placement[1] == win32con.SW_MAXIMIZE
 
-            info = (
-                f"Window Handle (HWND): {hwnd}\n"
-                f"Window Title: {window_text}\n"
-                f"Class Name: {class_name}\n"
-                f"Window Rect: {window_rect}\n"
-                f"Style: {style:#010x}\n"
-                f"Extended Style: {ex_style:#010x}\n"
-                f"Thread ID: {thread_id}\n"
-                f"Process ID (PID): {pid}\n"
-                f"Process Name: {process_name}\n"
-                f"Process Executable: {process_exe}\n"
-                f"Parent Window Handle: {parent_hwnd}\n"
-                f"Parent Window Title: {win32gui.GetWindowText(parent_hwnd) if parent_hwnd else 'N/A'}\n"
-                f"Parent Class Name: {win32gui.GetClassName(parent_hwnd) if parent_hwnd else 'N/A'}\n"
-                f"Menu: {menu}\n"
-                f"Number of Child Windows: {len(children)}\n"
-                f"Is Visible: {bool_to_str(win32gui.IsWindowVisible(hwnd))}\n"
-                f"Is Enabled: {bool_to_str(win32gui.IsWindowEnabled(hwnd))}\n"
-                f"Is Minimized: {bool_to_str(win32gui.IsIconic(hwnd))}\n"
-                f"Is Maximized: {bool_to_str(is_maximized(hwnd))}\n"  # Use GetWindowPlacement to check if maximized
-                f"Is Window: {bool_to_str(win32gui.IsWindow(hwnd))}\n"
-                f"Is Child: {bool_to_str(win32gui.IsChild(parent_hwnd, hwnd))}\n"
-            )
+def dump_control_info(control, depth=0):
+    """주어진 컨트롤과 모든 자식 컨트롤의 정보를 재귀적으로 가져오는 함수"""
+    details = []
+    control_info = get_control_info(control)
+    details.append(
+        "  " * depth + json.dumps(control_info, indent=4, ensure_ascii=False)
+    )
+    for child in control.children():
+        details.extend(dump_control_info(child, depth + 1))
+    return details
 
-            for i, child in enumerate(children):
-                child_text = win32gui.GetWindowText(child)
-                child_class = win32gui.GetClassName(child)
-                child_rect = win32gui.GetWindowRect(child)
-                info += (
-                    f"  Child {i + 1} Handle: {child}\n"
-                    f"  Child {i + 1} Title: {child_text}\n"
-                    f"  Child {i + 1} Class: {child_class}\n"
-                    f"  Child {i + 1} Rect: {child_rect}\n"
-                )
 
-            return info
-        except Exception as e:
-            logging.error(f"Error retrieving window info: {e}")
-            return f"Error retrieving window info: {e}"
+def show_target_info(hwnd):
+    """타겟 정보를 표시하는 함수"""
+    info = get_window_info(hwnd)
+    if info:
+        app = Desktop(backend="uia").window(handle=hwnd)
+        details = dump_control_info(app)
 
-    def display_info(self, info):
-        self.info_display.append(info)
+        info_message = (
+            f"HWND: {info['HWND']}\n"
+            f"Title: {info['Title']}\n"
+            f"Class: {info['Class']}\n"
+            f"Position: {info['Position']}\n"
+            f"Extended Frame Bounds: {info['Extended Frame Bounds']}\n"
+            f"Details:\n" + "\n".join(details)
+        )
+
+        print(info_message)  # 콘솔에 출력
+
+        root = Tk()
+        root.withdraw()  # Tkinter 창 숨기기
+        messagebox.showinfo("Target Information", info_message)
+        root.destroy()
+    else:
+        root = Tk()
+        root.withdraw()
+        messagebox.showerror("Error", "Target not found!")
+        root.destroy()
+
+
+def on_click(x, y, button, pressed):
+    """마우스 클릭 이벤트 핸들러"""
+    if pressed:
+        hwnd = win32gui.WindowFromPoint((x, y))
+        show_target_info(hwnd)
+
+
+def start_mouse_listener():
+    """마우스 리스너 시작 함수"""
+    listener = mouse.Listener(on_click=on_click)
+    listener.start()
+    listener.join()
 
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = WindowInfoExtractor()
-    window.show()
-    sys.exit(app.exec_())
+    start_mouse_listener()
