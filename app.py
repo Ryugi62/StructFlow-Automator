@@ -1,3 +1,5 @@
+# app.py
+
 import os
 import subprocess
 import time
@@ -9,6 +11,7 @@ from tkinter import filedialog, Listbox, TclError
 import customtkinter as ctk
 from dotenv import load_dotenv
 
+
 class SingletonApp:
     _instance = None
 
@@ -16,6 +19,7 @@ class SingletonApp:
         if not cls._instance:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
+
 
 class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items, file_entries):
@@ -34,13 +38,22 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         self.attributes("-topmost", True)
 
     def create_widgets(self):
-        title_label = ctk.CTkLabel(self, text="선택된 항목 순서 조정", font=("Roboto Medium", 20))
+        title_label = ctk.CTkLabel(
+            self, text="선택된 항목 순서 조정", font=("Roboto Medium", 20)
+        )
         title_label.pack(pady=(20, 10))
 
         list_frame = ctk.CTkFrame(self)
         list_frame.pack(pady=10, padx=20, fill="both", expand=True)
 
-        self.listbox = Listbox(list_frame, width=50, height=15, bg="#3a3a3a", fg="white", selectbackground="#1f6aa5")
+        self.listbox = Listbox(
+            list_frame,
+            width=50,
+            height=15,
+            bg="#3a3a3a",
+            fg="white",
+            selectbackground="#1f6aa5",
+        )
         self.listbox.pack(side="left", fill="both", expand=True)
 
         scrollbar = ctk.CTkScrollbar(list_frame, command=self.listbox.yview)
@@ -54,23 +67,33 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         button_frame = ctk.CTkFrame(self, fg_color="transparent")
         button_frame.pack(pady=20, fill="x")
 
-        self.up_button = ctk.CTkButton(button_frame, text="위로", command=self.move_up, width=100)
+        self.up_button = ctk.CTkButton(
+            button_frame, text="위로", command=self.move_up, width=100
+        )
         self.up_button.pack(side="left", padx=10)
 
-        self.down_button = ctk.CTkButton(button_frame, text="아래로", command=self.move_down, width=100)
+        self.down_button = ctk.CTkButton(
+            button_frame, text="아래로", command=self.move_down, width=100
+        )
         self.down_button.pack(side="left", padx=10)
 
-        self.start_button = ctk.CTkButton(button_frame, text="시작", command=self.start_program, width=100)
+        self.start_button = ctk.CTkButton(
+            button_frame, text="시작", command=self.start_program, width=100
+        )
         self.start_button.pack(side="right", padx=10)
 
         files_frame = ctk.CTkFrame(self, fg_color="transparent")
         files_frame.pack(pady=10, fill="x")
 
-        files_label = ctk.CTkLabel(files_frame, text="파일 위치", font=("Roboto Medium", 16))
+        files_label = ctk.CTkLabel(
+            files_frame, text="파일 위치", font=("Roboto Medium", 16)
+        )
         files_label.pack(pady=(10, 5))
 
         for label, path in self.file_entries.items():
-            file_label = ctk.CTkLabel(files_frame, text=f"{label}: {path}", font=("Roboto", 12))
+            file_label = ctk.CTkLabel(
+                files_frame, text=f"{label}: {path}", font=("Roboto", 12)
+            )
             file_label.pack(anchor="w", padx=20, pady=2)
 
     def move_up(self):
@@ -87,7 +110,7 @@ class OrderSelectionWidget(ctk.CTkToplevel):
     def move_down(self):
         try:
             selected = self.listbox.curselection()[0]
-            if (selected < self.listbox.size() - 1):
+            if selected < self.listbox.size() - 1:
                 text = self.listbox.get(selected)
                 self.listbox.delete(selected)
                 self.listbox.insert(selected + 1, text)
@@ -103,6 +126,14 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         if "태양광" in self.file_entries:
             file_path = self.file_entries["태양광"]
             self.open_midas_gen_file(file_path, 17, 14, 1906, 1028)
+            self.get_sunlight_data()
+        elif "건물" in self.file_entries:
+            file_path = self.file_entries["건물"]
+            self.open_midas_gen_file(file_path, 17, 14, 1906, 1028)
+            self.get_building_data()
+        elif "디자인" in self.file_entries:
+            file_path = self.file_entries["디자인"]
+            self.open_midas_design_file(file_path, 17, 14, 1906, 1028)
 
         self.grab_release()
         self.destroy()
@@ -110,16 +141,16 @@ class OrderSelectionWidget(ctk.CTkToplevel):
     def open_midas_gen_file(self, file_path, x, y, width, height):
         midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"  # 마이다스 Gen 실행 파일의 경로로 변경 필요
         proc = subprocess.Popen([midas_gen_executable, file_path])
-        
+
         # 윈도우가 열릴 때까지 대기
         time.sleep(30)
-        
+
         # proc으로부터 pid 가져오기
         pid = proc.pid
-        
+
         # psutil을 사용하여 프로세스 객체 가져오기
         p = psutil.Process(pid)
-        
+
         # 프로세스의 모든 창 핸들 가져오기
         def get_hwnds_for_pid(pid):
             def callback(hwnd, hwnds):
@@ -128,18 +159,62 @@ class OrderSelectionWidget(ctk.CTkToplevel):
                     if found_pid == pid:
                         hwnds.append(hwnd)
                 return True
-            
+
             hwnds = []
             win32gui.EnumWindows(callback, hwnds)
             return hwnds
-        
+
         hwnds = get_hwnds_for_pid(pid)
-        
+
         # 첫 번째 핸들에 대해 창 크기 및 위치 설정
         if hwnds:
             win32gui.MoveWindow(hwnds[0], x, y, width, height, True)
         else:
             print("윈도우 핸들을 찾을 수 없습니다.")
+
+
+    def open_midas_design_file(self, file_path, x, y, width, height):
+        midas_design_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Design+\\Design+.exe"  # 마이다스 Design+ 실행 파일의 경로로 변경 필요
+        proc = subprocess.Popen([midas_design_executable, file_path])
+
+        # 윈도우가 열릴 때까지 대기
+        time.sleep(30)
+
+        # proc으로부터 pid 가져오기
+        pid = proc.pid
+
+        # psutil을 사용하여 프로세스 객체 가져오기
+        p = psutil.Process(pid)
+
+        # 프로세스의 모든 창 핸들 가져오기
+        def get_hwnds_for_pid(pid):
+            def callback(hwnd, hwnds):
+                if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                    _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if found_pid == pid:
+                        hwnds.append(hwnd)
+                return True
+
+            hwnds = []
+            win32gui.EnumWindows(callback, hwnds)
+            return hwnds
+        
+        hwnds = get_hwnds_for_pid(pid)
+
+        # 첫 번째 핸들에 대해 창 크기 및 위치 설정
+        if hwnds:
+            win32gui.MoveWindow(hwnds[0], x, y, width, height, True)
+        else:
+            print("윈도우 핸들을 찾을 수 없습니다.")
+
+    def get_sunlight_data(self):
+        # 태양광 데이터 갖고오기
+        pass
+
+    def get_building_data(self):
+        # 건물 데이터 갖고오기
+        pass
+
 
 class App(SingletonApp, ctk.CTk):
     WINDOW_GEOMETRY = "1280x768"
@@ -179,7 +254,11 @@ class App(SingletonApp, ctk.CTk):
         side_frame.grid_propagate(False)
         for name, index in self.TABS_DATA:
             button = ctk.CTkButton(
-                side_frame, text=name, height=50, command=lambda idx=index: self.show_tab(idx), fg_color="#444444"
+                side_frame,
+                text=name,
+                height=50,
+                command=lambda idx=index: self.show_tab(idx),
+                fg_color="#444444",
             )
             button.pack(pady=(20, 0) if index == 1 else 0, fill="x")
             self.tab_buttons[index] = button
@@ -229,7 +308,9 @@ class App(SingletonApp, ctk.CTk):
         return frame
 
     def add_section_label(self, parent, text, y, x=0.05):
-        ctk.CTkLabel(parent, text=text, font=("Roboto Medium", 20)).place(relx=x, rely=y, anchor=ctk.W)
+        ctk.CTkLabel(parent, text=text, font=("Roboto Medium", 20)).place(
+            relx=x, rely=y, anchor=ctk.W
+        )
 
     def open_file_dialog(self, entry_widget):
         file_path = filedialog.askopenfilename()
@@ -243,9 +324,15 @@ class App(SingletonApp, ctk.CTk):
             entry = ctk.CTkEntry(parent, width=300)
             self.file_entries[label] = entry
             entry.place(relx=start_x + 0.1, rely=y_offset, anchor=ctk.W)
-            ctk.CTkLabel(parent, text=f"{label} 파일").place(relx=start_x, rely=y_offset, anchor=ctk.W)
+            ctk.CTkLabel(parent, text=f"{label} 파일").place(
+                relx=start_x, rely=y_offset, anchor=ctk.W
+            )
             button = ctk.CTkButton(
-                parent, text="파일 선택", command=lambda e=entry: self.open_file_dialog(e), width=100, fg_color="#555555"
+                parent,
+                text="파일 선택",
+                command=lambda e=entry: self.open_file_dialog(e),
+                width=100,
+                fg_color="#555555",
             )
             button.place(relx=start_x + 0.4, rely=y_offset, anchor=ctk.W)
             y_offset += 0.07
@@ -255,7 +342,9 @@ class App(SingletonApp, ctk.CTk):
         for label in self.BASIC_INFO_LABELS:
             entry = ctk.CTkEntry(parent, width=180)
             entry.place(relx=start_x + 0.1, rely=y_offset, anchor=ctk.W)
-            ctk.CTkLabel(parent, text=label).place(relx=start_x, rely=y_offset, anchor=ctk.W)
+            ctk.CTkLabel(parent, text=label).place(
+                relx=start_x, rely=y_offset, anchor=ctk.W
+            )
             y_offset += 0.05
 
     def add_modeling_type_checkboxes(self, parent, start_y, start_x):
@@ -298,16 +387,29 @@ class App(SingletonApp, ctk.CTk):
         self.log_box.pack()
 
     def add_create_button(self, parent):
-        create_button = ctk.CTkButton(parent, text="생성", height=90, command=self.open_order_selection, fg_color="#1f6aa5")
+        create_button = ctk.CTkButton(
+            parent,
+            text="생성",
+            height=90,
+            command=self.open_order_selection,
+            fg_color="#1f6aa5",
+        )
         create_button.place(relx=0.9, rely=0.91, anchor=ctk.CENTER)
 
     def open_order_selection(self):
-        checked_items = [label for label, checkbox in self.checkboxes.items() if checkbox.get()]
-        file_entries = {label: entry.get() for label, entry in self.file_entries.items() if entry.get()}
+        checked_items = [
+            label for label, checkbox in self.checkboxes.items() if checkbox.get()
+        ]
+        file_entries = {
+            label: entry.get()
+            for label, entry in self.file_entries.items()
+            if entry.get()
+        }
         if checked_items or file_entries:
             OrderSelectionWidget(self, checked_items, file_entries)
         else:
             print("체크된 항목이 없습니다.")
+
 
 if __name__ == "__main__":
     app = App()
