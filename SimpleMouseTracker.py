@@ -1,13 +1,14 @@
-# SimpleMouseTracker.py
-
 import sys
 import os
 import time
+import uuid
 import json
+import shutil
 import logging
 import numpy as np
 import cv2
 from logging.handlers import RotatingFileHandler
+from pynput import mouse, keyboard
 from ctypes import windll
 import psutil
 import win32gui
@@ -38,110 +39,110 @@ def configure_logging():
 
 configure_logging()
 
-class ImageCapture:
-    def __init__(self, hwnd):
-        self.hwnd = hwnd
-
-    def capture_window_image(self):
-        try:
-            left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
-            width = right - left
-            height = bottom - top
-
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
-            saveDC.SelectObject(saveBitMap)
-
-            result = windll.user32.PrintWindow(self.hwnd, saveDC.GetSafeHdc(), 0)
-
-            if result == 0:
-                windll.gdi32.BitBlt(
-                    saveDC.GetSafeHdc(),
-                    0,
-                    0,
-                    width,
-                    height,
-                    mfcDC.GetSafeHdc(),
-                    0,
-                    0,
-                    win32con.SRCCOPY,
-                )
-
-            signedIntsArray = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(signedIntsArray, dtype="uint8")
-            img.shape = (height, width, 4)
-
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-
-            return img
-        except Exception as e:
-            logging.error(f"Error capturing window image: {e}")
-            return None
-
-class MouseTracker:
+class AutoMouseTracker:
     def __init__(self, script_path):
         self.script_path = script_path
-        self.click_events = self.load_script()
+        self.current = (0, 0)
+        self.click_events = []
+        self.recording = False
+        self.speed_factor = 1.0
         self.current_program_hwnd = win32gui.GetForegroundWindow()
+        self.capture_thread = None
+        self.dark_mode = False
+        self.custom_image_path = None
+        self.running_script = False
+        self.load_script()
 
     def load_script(self):
-        with open(self.script_path, "r") as file:
-            return json.load(file)
+        try:
+            with open(self.script_path, 'r', encoding='utf-8') as f:
+                self.script = json.load(f)
+            logging.info(f"Script loaded from {self.script_path}")
+        except Exception as e:
+            logging.error(f"Failed to load script: {e}")
+            raise
 
     def play_script(self):
-        if not self.click_events:
+        if not self.script:
             return
 
-        for index, event in enumerate(self.click_events):
-            self.process_single_event(event)
-            time.sleep(1)  # Adding delay between events
+        self.running_script = True
+        self.progress_bar_value = 0
 
-    def process_single_event(self, event):
-        condition = event.get("condition")
-        if condition == "이미지 찾을때까지 계속 기다리기":
-            hwnd = None
-            timeout = 5 * 60
-            start_time = time.time()
-            while time.time() - start_time < timeout:
+        def process_event(index):
+            if not self.running_script:
+                logging.info("Script playback stopped.")
+                return
+
+            if index >= len(self.script):
+                self.running_script = False
+                self.progress_bar_value = len(self.script)
+                logging.info("Script playback completed.")
+                return
+
+            event = self.script[index]
+
+            if event.get("condition") == "이미지 찾을때까지 계속 기다리기":
+                while True:
+                    try:
+                        hwnd = self.find_target_hwnd(event)
+                        if hwnd and self.check_image_presence(event, hwnd):
+                            logging.info("Image found.")
+                            break
+                    except RuntimeError:
+                        logging.warning("Target hwnd not found, retrying...")
+                    time.sleep(1)
+
+            if event.get("condition") == "이미지가 있으면 스킵":
                 hwnd = self.find_target_hwnd(event)
                 if hwnd and self.check_image_presence(event, hwnd):
-                    logging.info("Image found, proceeding with click.")
+                    logging.info("Image found, skipping click.")
+                    time.sleep(0.5)
+                    process_event(index + 1)
+                    return
+
+            if event.get("condition") == "이미지가 없으면 스킵":
+                hwnd = self.find_target_hwnd(event)
+                if hwnd and not self.check_image_presence(event, hwnd):
+                    logging.info("Image not found, skipping click.")
+                    time.sleep(0.5)
+                    process_event(index + 1)
+                    return
+
+            repeat_count = event.get("repeat_count", 1)
+            for _ in range(repeat_count):
+                if not self.process_single_event(event):
                     break
-                logging.info("Waiting for image to appear...")
-                time.sleep(1)
-        else:
-            hwnd = self.find_target_hwnd(event)
 
-        if not hwnd or hwnd == 0:
+            self.progress_bar_value = index + 1
+
+            logging.info(f"Processed event {index + 1}/{len(self.script)}")
+            time.sleep(0.5)
+            process_event(index + 1)
+
+        process_event(0)
+
+    def process_single_event(self, event):
+        hwnd = self.find_target_hwnd(event)
+        if hwnd is None or hwnd == 0:
             logging.warning(f"Failed to find hwnd for event: {event}")
-            return
+            return False
 
-        if condition == "이미지가 있으면 스킵":
-            if self.check_image_presence(event, hwnd):
-                logging.info("Image found, skipping click.")
-                return
-
-        elif condition == "이미지가 없으면 스킵":
+        if event.get("condition") == "Image Present":
             if not self.check_image_presence(event, hwnd):
-                logging.info("Image not found, skipping click.")
-                return
+                logging.info("Condition 'Image Present' not met, skipping event.")
+                return False
+        elif event.get("condition") == "Image Not Present":
+            if self.check_image_presence(event, hwnd):
+                logging.info("Condition 'Image Not Present' not met, skipping event.")
+                return False
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
             time.sleep(click_delay / 1000)
 
         if event.get("auto_update_target", False):
-            capture = ImageCapture(hwnd)
-            img = capture.capture_window_image()
+            img = self.capture_window_image(hwnd)
             if img is not None:
                 for image_path in event.get("image_paths", []):
                     target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
@@ -167,88 +168,9 @@ class MouseTracker:
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
-    def send_click_event(
-        self, relative_x, relative_y, hwnd, move_cursor, double_click, button
-    ):
-        if not hwnd or not win32gui.IsWindow(hwnd):
-            logging.warning(f"Invalid hwnd: {hwnd}")
-            return
+        img = self.capture_window_image(hwnd)
 
-        if move_cursor:
-            current_x, current_y = win32api.GetCursorPos()
-            screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-
-            move_direction = 10 if current_y == 0 else -10
-            new_y = max(0, min(screen_height - 1, current_y + move_direction))
-            win32api.SetCursorPos((current_x, new_y))
-            time.sleep(0.1)
-
-        lParam = win32api.MAKELONG(relative_x, relative_y)
-
-        if win32gui.GetClassName(hwnd) == "#32768":
-            left, top, _, _ = win32gui.GetWindowRect(hwnd)
-            screen_x, screen_y = left + relative_x, top + relative_y
-
-            time.sleep(0.5)
-
-            lParam = win32api.MAKELONG(screen_x, screen_y)
-
-        try:
-            print(hwnd, relative_x, relative_y, button)
-            if button == "left":
-                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-                time.sleep(0.1)
-                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-
-                if double_click:
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-            elif button == "right":
-                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
-                time.sleep(0.1)
-                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
-
-                if double_click:
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
-
-            logging.debug("Click event sent successfully.")
-        except Exception as e:
-            logging.error(f"Failed to send click event: {e}")
-
-    def send_keyboard_input(self, text, hwnd):
-        for char in text:
-            win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
-            time.sleep(0.05)
-
-    def check_image_presence(self, event, hwnd):
-        target_image_paths = event.get("image_paths", [])
-        if not target_image_paths:
-            return False
-
-        current_image = ImageCapture(hwnd).capture_window_image()
-        if current_image is None:
-            return False
-
-        similarity_threshold = event.get("similarity_threshold", 0.6)
-        for target_image_info in target_image_paths:
-            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
-            if target_image is None:
-                continue
-
-            result = cv2.matchTemplate(
-                current_image, target_image, cv2.TM_CCOEFF_NORMED
-            )
-            _, max_val, _, _ = cv2.minMaxLoc(result)
-
-            if max_val >= similarity_threshold:
-                return True
-
-        return False
+        return True
 
     def find_target_hwnd(self, event):
         try:
@@ -270,15 +192,6 @@ class MouseTracker:
 
         logging.warning(f"No valid hwnd found for event: {event}")
         return None
-
-    def is_valid_process(self, pid, program_name, program_path=None):
-        try:
-            process = psutil.Process(pid)
-            if program_path:
-                return process.exe().lower() == program_path.lower()
-            return process.name().lower() == program_name.lower()
-        except psutil.NoSuchProcess:
-            return False
 
     def find_hwnd(
         self,
@@ -440,6 +353,137 @@ class MouseTracker:
         win32gui.EnumChildWindows(parent_hwnd, enum_child_proc, None)
         return child_windows
 
+    def send_click_event(
+        self, relative_x, relative_y, hwnd, move_cursor, double_click, button
+    ):
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            logging.warning(f"Invalid hwnd: {hwnd}")
+            return
+
+        if move_cursor:
+            current_x, current_y = win32api.GetCursorPos()
+            screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+
+            move_direction = 10 if current_y == 0 else -10
+            new_y = max(0, min(screen_height - 1, current_y + move_direction))
+            win32api.SetCursorPos((current_x, new_y))
+            time.sleep(0.1)
+
+        lParam = win32api.MAKELONG(relative_x, relative_y)
+        
+        if win32gui.GetClassName(hwnd) == "#32768":
+            # 윈도우의 절대 좌표 얻기
+            left, top, _, _ = win32gui.GetWindowRect(hwnd)
+            # 화면 좌표로 변환
+            screen_x, screen_y = left + relative_x, top + relative_y
+
+            # 클릭 전 잠시 대기
+            time.sleep(0.5)
+
+            lParam = win32api.MAKELONG(screen_x, screen_y)
+
+        try:
+            print(hwnd, relative_x, relative_y, button)
+            if button == "left":
+                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+                time.sleep(0.1)
+                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+
+                if double_click:
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+            elif button == "right":
+                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+                time.sleep(0.1)
+                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
+
+                if double_click:
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+                    time.sleep(0.1)
+                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
+
+            logging.debug("Click event sent successfully.")
+        except Exception as e:
+            logging.error(f"Failed to send click event: {e}")
+
+    def send_keyboard_input(self, text, hwnd):
+        for char in text:
+            win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
+            time.sleep(0.05)
+
+    def check_image_presence(self, event, hwnd):
+        target_image_paths = event["image"].get("target_paths", [])
+        if not target_image_paths:
+            return False
+
+        current_image = self.capture_window_image(hwnd)
+        if current_image is None:
+            return False
+
+        similarity_threshold = event.get("similarity_threshold", 0.6)
+        for target_image_info in target_image_paths:
+            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
+            if target_image is None:
+                continue
+
+            result = cv2.matchTemplate(
+                current_image, target_image, cv2.TM_CCOEFF_NORMED
+            )
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+
+            if max_val >= similarity_threshold:
+                return True
+
+        return False
+
+    def capture_window_image(self, hwnd):
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            width = right - left
+            height = bottom - top
+
+            hwndDC = win32gui.GetWindowDC(hwnd)
+            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+            saveDC = mfcDC.CreateCompatibleDC()
+
+            saveBitMap = win32ui.CreateBitmap()
+            saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
+            saveDC.SelectObject(saveBitMap)
+
+            result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
+
+            if result == 0:
+                windll.gdi32.BitBlt(
+                    saveDC.GetSafeHdc(),
+                    0,
+                    0,
+                    width,
+                    height,
+                    mfcDC.GetSafeHdc(),
+                    0,
+                    0,
+                    win32con.SRCCOPY,
+                )
+
+            signedIntsArray = saveBitMap.GetBitmapBits(True)
+            img = np.frombuffer(signedIntsArray, dtype="uint8")
+            img.shape = (height, width, 4)
+
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+            win32gui.DeleteObject(saveBitMap.GetHandle())
+            saveDC.DeleteDC()
+            mfcDC.DeleteDC()
+            win32gui.ReleaseDC(hwnd, hwndDC)
+
+            return img
+        except Exception as e:
+            logging.error(f"Error capturing window image: {e}")
+            return None
+
     @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
         if event_type == win32con.WM_LBUTTONDOWN:
@@ -456,11 +500,20 @@ class MouseTracker:
             depth += 1
         return depth
 
+    def is_valid_process(self, pid, program_name, program_path=None):
+        try:
+            process = psutil.Process(pid)
+            if program_path:
+                return process.exe().lower() == program_path.lower()
+            return process.name().lower() == program_name.lower()
+        except psutil.NoSuchProcess:
+            return False
+
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python.exe .\\SimpleMouseTracker.py .\\calcurate.json")
+        print("Usage: python AutoMouseTracker.py <path_to_script.json>")
         sys.exit(1)
 
     script_path = sys.argv[1]
-    tracker = MouseTracker(script_path)
+    tracker = AutoMouseTracker(script_path)
     tracker.play_script()
