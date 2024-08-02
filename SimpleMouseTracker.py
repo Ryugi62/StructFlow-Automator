@@ -1,21 +1,18 @@
 import sys
 import os
 import time
-import uuid
 import json
-import shutil
 import logging
-import numpy as np
 import cv2
-from logging.handlers import RotatingFileHandler
-from pynput import mouse, keyboard
-from ctypes import windll
+import numpy as np
 import psutil
 import win32gui
 import win32process
 import win32api
 import win32con
 import win32ui
+from logging.handlers import RotatingFileHandler
+from ctypes import windll
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -93,18 +90,12 @@ class AutoMouseTracker:
                         logging.warning("Target hwnd not found, retrying...")
                     time.sleep(1)
 
-            if event.get("condition") == "이미지가 있으면 스킵":
+            if event.get("condition") in ["이미지가 있으면 스킵", "이미지가 없으면 스킵"]:
                 hwnd = self.find_target_hwnd(event)
-                if hwnd and self.check_image_presence(event, hwnd):
-                    logging.info("Image found, skipping click.")
-                    time.sleep(0.5)
-                    process_event(index + 1)
-                    return
-
-            if event.get("condition") == "이미지가 없으면 스킵":
-                hwnd = self.find_target_hwnd(event)
-                if hwnd and not self.check_image_presence(event, hwnd):
-                    logging.info("Image not found, skipping click.")
+                image_present = self.check_image_presence(event, hwnd)
+                if (event["condition"] == "이미지가 있으면 스킵" and image_present) or \
+                   (event["condition"] == "이미지가 없으면 스킵" and not image_present):
+                    logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
                     process_event(index + 1)
                     return
@@ -124,36 +115,19 @@ class AutoMouseTracker:
 
     def process_single_event(self, event):
         hwnd = self.find_target_hwnd(event)
-        if hwnd is None or hwnd == 0:
+        if hwnd is None:
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
-        if event.get("condition") == "Image Present":
-            if not self.check_image_presence(event, hwnd):
-                logging.info("Condition 'Image Present' not met, skipping event.")
-                return False
-        elif event.get("condition") == "Image Not Present":
-            if self.check_image_presence(event, hwnd):
-                logging.info("Condition 'Image Not Present' not met, skipping event.")
-                return False
+        if not self.check_conditions(event, hwnd):
+            return False
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
             time.sleep(click_delay / 1000)
 
         if event.get("auto_update_target", False):
-            img = self.capture_window_image(hwnd)
-            if img is not None:
-                for image_path in event.get("image_paths", []):
-                    target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-                    if target_image is not None:
-                        result = cv2.matchTemplate(
-                            img, target_image, cv2.TM_CCOEFF_NORMED
-                        )
-                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
-                        if max_val >= event.get("similarity_threshold", 0.6):
-                            event["relative_x"], event["relative_y"] = max_loc
-                            break
+            self.update_target_position(event, hwnd)
 
         self.send_click_event(
             event["relative_x"],
@@ -167,8 +141,6 @@ class AutoMouseTracker:
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
-
-        img = self.capture_window_image(hwnd)
 
         return True
 
@@ -184,14 +156,10 @@ class AutoMouseTracker:
                 event["window_rect"],
                 event.get("ignore_pos_size", False),
             )
-            if hwnds:
-                return hwnds[0]
+            return hwnds[0] if hwnds else None
         except RuntimeError as e:
             logging.warning(f"No valid hwnd found for event: {event}. Exception: {e}")
             return None
-
-        logging.warning(f"No valid hwnd found for event: {event}")
-        return None
 
     def find_hwnd(
         self,
@@ -207,11 +175,7 @@ class AutoMouseTracker:
         hwnds = []
 
         def callback(hwnd, _):
-            if (
-                not win32gui.IsWindow(hwnd)
-                or not win32gui.IsWindowEnabled(hwnd)
-                or not win32gui.IsWindowVisible(hwnd)
-            ):
+            if not self.is_valid_window(hwnd):
                 return True
             current_depth = self.get_window_depth(hwnd)
             if current_depth > depth:
@@ -220,25 +184,7 @@ class AutoMouseTracker:
             if self.is_valid_process(found_pid, program_name, program_path):
                 class_name = win32gui.GetClassName(hwnd)
                 window_text = win32gui.GetWindowText(hwnd)
-                class_match = window_class in class_name if window_class else True
-                name_match = window_name == window_text if window_name else True
-                title_match = window_title == window_text if window_title else True
-                rect_match = True
-                if window_rect and not ignore_pos_size:
-                    rect = win32gui.GetWindowRect(hwnd)
-                    rect_match = (
-                        window_rect[0] == rect[0]
-                        and window_rect[1] == rect[1]
-                        and window_rect[2] == rect[2]
-                        and window_rect[3] == rect[3]
-                    )
-                if (
-                    class_match
-                    and name_match
-                    and title_match
-                    and current_depth == depth
-                    and rect_match
-                ):
+                if self.matches_window_criteria(class_name, window_text, window_class, window_name, window_title, window_rect, hwnd, ignore_pos_size):
                     hwnds.append(hwnd)
                 hwnds.extend(
                     self.find_all_child_windows(
@@ -277,17 +223,13 @@ class AutoMouseTracker:
         hwnds = []
 
         def callback(hwnd, _):
-            if not win32gui.IsWindowEnabled(hwnd) or not win32gui.IsWindowVisible(hwnd):
-                return True
-            _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-            if self.is_valid_process(found_pid, program_name, program_path):
-                class_name = win32gui.GetClassName(hwnd)
-                window_text = win32gui.GetWindowText(hwnd)
-                class_match = window_class in class_name if window_class else True
-                name_match = window_name == window_text if window_name else True
-                title_match = window_title == window_text if window_title else True
-                if class_match and name_match and title_match:
-                    hwnds.append(hwnd)
+            if self.is_valid_window(hwnd):
+                _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if self.is_valid_process(found_pid, program_name, program_path):
+                    class_name = win32gui.GetClassName(hwnd)
+                    window_text = win32gui.GetWindowText(hwnd)
+                    if self.matches_window_criteria(class_name, window_text, window_class, window_name, window_title):
+                        hwnds.append(hwnd)
             return True
 
         win32gui.EnumWindows(callback, None)
@@ -307,47 +249,30 @@ class AutoMouseTracker:
         child_windows = []
 
         def enum_child_proc(hwnd, _):
-            if (
-                not win32gui.IsWindow(hwnd)
-                or not win32gui.IsWindowEnabled(hwnd)
-                or not win32gui.IsWindowVisible(hwnd)
-            ):
-                return True
-            match_class = (
-                window_class in win32gui.GetClassName(hwnd) if window_class else True
-            )
-            match_text = (
-                window_text == win32gui.GetWindowText(hwnd) if window_text else True
-            )
-            match_name = (
-                window_name == win32gui.GetWindowText(hwnd) if window_name else True
-            )
-            match_title = (
-                window_title == win32gui.GetWindowText(hwnd) if window_title else True
-            )
-            rect_match = True
-            if window_rect and not ignore_pos_size:
-                rect = win32gui.GetWindowRect(hwnd)
-                rect_match = (
-                    window_rect[0] == rect[0]
-                    and window_rect[1] == rect[1]
-                    and window_rect[2] == rect[2]
-                    and window_rect[3] == rect[3]
-                )
-            if match_class and (match_text or match_name or match_title) and rect_match:
-                child_windows.append(hwnd)
-                child_windows.extend(
-                    self.find_all_child_windows(
-                        hwnd,
-                        window_class,
-                        window_name,
-                        window_text,
-                        current_depth + 1,
-                        window_title,
-                        window_rect,
-                        ignore_pos_size,
+            if self.is_valid_window(hwnd):
+                if self.matches_window_criteria(
+                    win32gui.GetClassName(hwnd),
+                    win32gui.GetWindowText(hwnd),
+                    window_class,
+                    window_name,
+                    window_title,
+                    window_rect,
+                    hwnd,
+                    ignore_pos_size,
+                ):
+                    child_windows.append(hwnd)
+                    child_windows.extend(
+                        self.find_all_child_windows(
+                            hwnd,
+                            window_class,
+                            window_name,
+                            window_text,
+                            current_depth + 1,
+                            window_title,
+                            window_rect,
+                            ignore_pos_size,
+                        )
                     )
-                )
             return True
 
         win32gui.EnumChildWindows(parent_hwnd, enum_child_proc, None)
@@ -356,55 +281,17 @@ class AutoMouseTracker:
     def send_click_event(
         self, relative_x, relative_y, hwnd, move_cursor, double_click, button
     ):
-        if not hwnd or not win32gui.IsWindow(hwnd):
+        if not self.is_valid_window(hwnd):
             logging.warning(f"Invalid hwnd: {hwnd}")
             return
 
         if move_cursor:
-            current_x, current_y = win32api.GetCursorPos()
-            screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+            self.move_cursor(relative_y)
 
-            move_direction = 10 if current_y == 0 else -10
-            new_y = max(0, min(screen_height - 1, current_y + move_direction))
-            win32api.SetCursorPos((current_x, new_y))
-            time.sleep(0.1)
-
-        lParam = win32api.MAKELONG(relative_x, relative_y)
-        
-        if win32gui.GetClassName(hwnd) == "#32768":
-            # 윈도우의 절대 좌표 얻기
-            left, top, _, _ = win32gui.GetWindowRect(hwnd)
-            # 화면 좌표로 변환
-            screen_x, screen_y = left + relative_x, top + relative_y
-
-            # 클릭 전 잠시 대기
-            time.sleep(0.5)
-
-            lParam = win32api.MAKELONG(screen_x, screen_y)
+        lParam = self.get_lparam(relative_x, relative_y, hwnd)
 
         try:
-            print(hwnd, relative_x, relative_y, button)
-            if button == "left":
-                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-                time.sleep(0.1)
-                self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-
-                if double_click:
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
-            elif button == "right":
-                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
-                time.sleep(0.1)
-                self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
-
-                if double_click:
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
-                    time.sleep(0.1)
-                    self.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
-
+            self.simulate_click(button, hwnd, lParam, double_click)
             logging.debug("Click event sent successfully.")
         except Exception as e:
             logging.error(f"Failed to send click event: {e}")
@@ -442,8 +329,7 @@ class AutoMouseTracker:
     def capture_window_image(self, hwnd):
         try:
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-            width = right - left
-            height = bottom - top
+            width, height = right - left, bottom - top
 
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
@@ -485,11 +371,30 @@ class AutoMouseTracker:
             return None
 
     @staticmethod
+    def simulate_click(button, hwnd, lParam, double_click):
+        if button == "left":
+            AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+            time.sleep(0.1)
+            AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+            if double_click:
+                time.sleep(0.1)
+                AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_LBUTTONDOWN)
+                time.sleep(0.1)
+                AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_LBUTTONUP)
+        elif button == "right":
+            AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+            time.sleep(0.1)
+            AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
+            if double_click:
+                time.sleep(0.1)
+                AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_RBUTTONDOWN)
+                time.sleep(0.1)
+                AutoMouseTracker.simulate_mouse_event(hwnd, lParam, WM_RBUTTONUP)
+
+    @staticmethod
     def simulate_mouse_event(hwnd, lParam, event_type):
-        if event_type == win32con.WM_LBUTTONDOWN:
+        if event_type in [WM_LBUTTONDOWN, WM_RBUTTONDOWN]:
             win32gui.PostMessage(hwnd, event_type, win32con.MK_LBUTTON, lParam)
-        elif event_type == win32con.WM_RBUTTONDOWN:
-            win32gui.PostMessage(hwnd, event_type, win32con.MK_RBUTTON, lParam)
         else:
             win32gui.PostMessage(hwnd, event_type, 0, lParam)
 
@@ -508,6 +413,66 @@ class AutoMouseTracker:
             return process.name().lower() == program_name.lower()
         except psutil.NoSuchProcess:
             return False
+
+    def is_valid_window(self, hwnd):
+        return win32gui.IsWindow(hwnd) and win32gui.IsWindowEnabled(hwnd) and win32gui.IsWindowVisible(hwnd)
+
+    def matches_window_criteria(self, class_name, window_text, window_class, window_name, window_title, window_rect=None, hwnd=None, ignore_pos_size=False):
+        class_match = window_class in class_name if window_class else True
+        name_match = window_name == window_text if window_name else True
+        title_match = window_title == window_text if window_title else True
+        rect_match = True
+        if window_rect and not ignore_pos_size:
+            rect = win32gui.GetWindowRect(hwnd)
+            rect_match = (
+                window_rect[0] == rect[0]
+                and window_rect[1] == rect[1]
+                and window_rect[2] == rect[2]
+                and window_rect[3] == rect[3]
+            )
+        return class_match and name_match and title_match and rect_match
+
+    def check_conditions(self, event, hwnd):
+        if event.get("condition") == "Image Present":
+            if not self.check_image_presence(event, hwnd):
+                logging.info("Condition 'Image Present' not met, skipping event.")
+                return False
+        elif event.get("condition") == "Image Not Present":
+            if self.check_image_presence(event, hwnd):
+                logging.info("Condition 'Image Not Present' not met, skipping event.")
+                return False
+        return True
+
+    def update_target_position(self, event, hwnd):
+        img = self.capture_window_image(hwnd)
+        if img is not None:
+            for image_path in event.get("image_paths", []):
+                target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+                if target_image is not None:
+                    result = cv2.matchTemplate(
+                        img, target_image, cv2.TM_CCOEFF_NORMED
+                    )
+                    _, max_val, _, max_loc = cv2.minMaxLoc(result)
+                    if max_val >= event.get("similarity_threshold", 0.6):
+                        event["relative_x"], event["relative_y"] = max_loc
+                        break
+
+    def move_cursor(self, current_y):
+        current_x, current_y = win32api.GetCursorPos()
+        screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        move_direction = 10 if current_y == 0 else -10
+        new_y = max(0, min(screen_height - 1, current_y + move_direction))
+        win32api.SetCursorPos((current_x, new_y))
+        time.sleep(0.1)
+
+    def get_lparam(self, relative_x, relative_y, hwnd):
+        lParam = win32api.MAKELONG(relative_x, relative_y)
+        if win32gui.GetClassName(hwnd) == "#32768":
+            left, top, _, _ = win32gui.GetWindowRect(hwnd)
+            screen_x, screen_y = left + relative_x, top + relative_y
+            time.sleep(0.5)
+            lParam = win32api.MAKELONG(screen_x, screen_y)
+        return lParam
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
