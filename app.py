@@ -51,6 +51,7 @@ class MidasWindowManager:
             top_hwnd = self.get_top_level_parent(self.midas_hwnd)
             self.save_original_position_and_size(top_hwnd)
             self.set_window_position_and_size(top_hwnd, x, y, width, height)
+            win32gui.SetWindowPos(top_hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOMOVE)
         else:
             print("Window handle not found.")
 
@@ -69,6 +70,9 @@ class MidasWindowManager:
             height,
             win32con.SWP_NOACTIVATE,
         )
+
+        # z-order를 최하위로 설정
+        win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOMOVE)
 
     def restore_original_position_and_size(self):
         if self.midas_hwnd and self.original_position and self.original_size:
@@ -483,10 +487,10 @@ relx=x, rely=y, anchor=ctk.W
             self.window_manager.set_window_position_and_size(self.window_manager.midas_hwnd, 17, 14, 1906, 1028)
 
         self.run_json_file("display.json")
-        # self.run_json_file("calculate.json")
-        # self.run_json_file("steel_code_check.json")
-        # self.run_json_file("cold_formed_steel_code_check.json")
-        # self.run_json_file("table.json")
+        self.run_json_file("calculate.json")
+        self.run_json_file("steel_code_check.json")
+        self.run_json_file("cold_formed_steel_code_check.json")
+        self.run_json_file("table.json")
 
         self.window_manager.restore_original_position_and_size()
         self.window_manager.close_midas_gen()
