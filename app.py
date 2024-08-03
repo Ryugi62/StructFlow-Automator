@@ -1,5 +1,3 @@
-# app.py
-
 import os
 import subprocess
 import time
@@ -348,9 +346,19 @@ class App(SingletonApp, ctk.CTk):
         if not os.path.exists(self.json_directory):
             os.makedirs(self.json_directory)
 
+    def minimize_all_windows(self):
+        def callback(hwnd, extra):
+            if win32gui.IsWindowVisible(hwnd):
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                if pid == os.getpid():  # 현재 프로세스의 창만 최소화
+                    win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+            return True
+
+        win32gui.EnumWindows(callback, None)
+
     def run_simple_mouse_tracker(self, ordered_items):
         # 모든 gui 최소화
-        self.iconify()
+        self.minimize_all_windows()
 
         for item in ordered_items:
             if item in self.checkbox_functions:
@@ -395,10 +403,10 @@ class App(SingletonApp, ctk.CTk):
         if not self.is_midas_gen_open(solar_file):
             self.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
 
-        # self.run_json_file("display.json")
-        # self.run_json_file("calculate.json")
-        # self.run_json_file("steel_code_check.json")
-        # self.run_json_file("cold_formed_steel_code_check.json")
+        self.run_json_file("display.json")
+        self.run_json_file("calculate.json")
+        self.run_json_file("steel_code_check.json")
+        self.run_json_file("cold_formed_steel_code_check.json")
         self.run_json_file("table.json")
         print("타입분할 작업 완료")
 
@@ -532,7 +540,7 @@ class App(SingletonApp, ctk.CTk):
             [midas_design_executable, file_path], startupinfo=startupinfo
         )
 
-        time.sleep(30)  # 프로그램이 완전히 로드될 때까지 대기
+        time.sleep(60)  # 프로그램이 완전히 로드될 때까지 대기
 
         pid = proc.pid
         hwnds = self.get_hwnds_for_pid(pid)
@@ -542,6 +550,17 @@ class App(SingletonApp, ctk.CTk):
             # 창 위치와 크기 설정 (여전히 숨겨진 상태)
             win32gui.SetWindowPos(
                 hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_NOACTIVATE
+            )
+
+            # z-order를 최하위로 설정하여 화면에 보이지 않게 함
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
             )
         else:
             print("윈도우 핸들을 찾을 수 없습니다.")
