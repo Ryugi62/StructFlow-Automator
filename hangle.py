@@ -133,18 +133,24 @@ def check_document_state(hwp):
         print(f"문서 상태 확인 중 오류 발생: {e}")
 
 def main():
+    if len(sys.argv) < 3:
+        print("사용법: python hangle.py <파일 경로> <검색할 텍스트>")
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    search_text = sys.argv[2]
+
     try:
         hwp = win32.gencache.EnsureDispatch("HWPFrame.HwpObject")
         hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule")
         
-        file_path = r"C:\Users\xorjf\OneDrive\바탕 화면\체크박스용 샘플\1. 표지(건물위, 슬래브위).hwp"
         hwp.Open(file_path)
         
         print("파일이 열렸습니다:", file_path)
 
         check_document_state(hwp)
 
-        if replace_text_with_clipboard(hwp, r"{{위치도}}"):
+        if replace_text_with_clipboard(hwp, search_text):
             save_as_hwp_and_pdf(hwp, file_path)
 
     except Exception as e:
