@@ -24,6 +24,7 @@ class SingletonApp:
 class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items, file_entries):
         super().__init__(parent)
+        self.parent = parent
         self.title("순서 선택")
         self.geometry("500x600")
         self.configure(fg_color="#2b2b2b")
@@ -122,98 +123,11 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         ordered_items = self.listbox.get(0, "end")
         print("순서:", ordered_items)
 
-        # Midas Gen 파일을 실행
-        if "태양광" in self.file_entries:
-            file_path = self.file_entries["태양광"]
-            self.open_midas_gen_file(file_path, 17, 14, 1906, 1028)
-            self.get_sunlight_data()
-        elif "건물" in self.file_entries:
-            file_path = self.file_entries["건물"]
-            self.open_midas_gen_file(file_path, 17, 14, 1906, 1028)
-            self.get_building_data()
-        elif "디자인" in self.file_entries:
-            file_path = self.file_entries["디자인"]
-            self.open_midas_design_file(file_path, 17, 14, 1906, 1028)
+        # SimpleMouseTracker 실행
+        self.parent.run_simple_mouse_tracker(ordered_items)
 
         self.grab_release()
         self.destroy()
-
-    def open_midas_gen_file(self, file_path, x, y, width, height):
-        midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"  # 마이다스 Gen 실행 파일의 경로로 변경 필요
-        proc = subprocess.Popen([midas_gen_executable, file_path])
-
-        # 윈도우가 열릴 때까지 대기
-        time.sleep(30)
-
-        # proc으로부터 pid 가져오기
-        pid = proc.pid
-
-        # psutil을 사용하여 프로세스 객체 가져오기
-        p = psutil.Process(pid)
-
-        # 프로세스의 모든 창 핸들 가져오기
-        def get_hwnds_for_pid(pid):
-            def callback(hwnd, hwnds):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                    _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-                    if found_pid == pid:
-                        hwnds.append(hwnd)
-                return True
-
-            hwnds = []
-            win32gui.EnumWindows(callback, hwnds)
-            return hwnds
-
-        hwnds = get_hwnds_for_pid(pid)
-
-        # 첫 번째 핸들에 대해 창 크기 및 위치 설정
-        if hwnds:
-            win32gui.MoveWindow(hwnds[0], x, y, width, height, True)
-        else:
-            print("윈도우 핸들을 찾을 수 없습니다.")
-
-
-    def open_midas_design_file(self, file_path, x, y, width, height):
-        midas_design_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Design+\\Design+.exe"  # 마이다스 Design+ 실행 파일의 경로로 변경 필요
-        proc = subprocess.Popen([midas_design_executable, file_path])
-
-        # 윈도우가 열릴 때까지 대기
-        time.sleep(30)
-
-        # proc으로부터 pid 가져오기
-        pid = proc.pid
-
-        # psutil을 사용하여 프로세스 객체 가져오기
-        p = psutil.Process(pid)
-
-        # 프로세스의 모든 창 핸들 가져오기
-        def get_hwnds_for_pid(pid):
-            def callback(hwnd, hwnds):
-                if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                    _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-                    if found_pid == pid:
-                        hwnds.append(hwnd)
-                return True
-
-            hwnds = []
-            win32gui.EnumWindows(callback, hwnds)
-            return hwnds
-        
-        hwnds = get_hwnds_for_pid(pid)
-
-        # 첫 번째 핸들에 대해 창 크기 및 위치 설정
-        if hwnds:
-            win32gui.MoveWindow(hwnds[0], x, y, width, height, True)
-        else:
-            print("윈도우 핸들을 찾을 수 없습니다.")
-
-    def get_sunlight_data(self):
-        # 태양광 데이터 갖고오기
-        pass
-
-    def get_building_data(self):
-        # 건물 데이터 갖고오기
-        pass
 
 
 class App(SingletonApp, ctk.CTk):
@@ -232,9 +146,29 @@ class App(SingletonApp, ctk.CTk):
         self.tab_buttons = {}
         self.tabs_content = {}
         self.checkboxes = {}
+        self.checkbox_functions = {
+            "타입분할": self.run_type_division,
+            "건물 / 태양광 통합": self.run_building_solar_integration,
+            "크레인": self.run_crane,
+            "지진": self.run_earthquake,
+            "바닥 활하중": self.run_floor_load,
+            "기타 고정하중": self.run_dead_load,
+            "펄린": self.run_purlin,
+            "기본형": self.run_basic_solar,
+            "부착형": self.run_attached_solar,
+            "알류미늄": self.run_aluminum_solar,
+            "토지위(푸팅)": self.run_footing,
+            "토지위(파일)": self.run_pile,
+            "슬라브위": self.run_slab,
+            "건물위": self.run_on_building,
+            "접합부": self.run_joint,
+            "안전로프": self.run_safety_rope,
+        }
         self.configure_gui()
         self.create_layout()
         self.show_tab(1)
+        self.json_directory = os.path.join(os.path.dirname(__file__), "json_scripts")
+        self.ensure_json_directory()
 
     def configure_gui(self):
         self.geometry(self.WINDOW_GEOMETRY)
@@ -409,6 +343,220 @@ class App(SingletonApp, ctk.CTk):
             OrderSelectionWidget(self, checked_items, file_entries)
         else:
             print("체크된 항목이 없습니다.")
+
+    def ensure_json_directory(self):
+        if not os.path.exists(self.json_directory):
+            os.makedirs(self.json_directory)
+
+    def run_simple_mouse_tracker(self, ordered_items):
+        # 모든 gui 최소화
+        self.iconify()
+
+        for item in ordered_items:
+            if item in self.checkbox_functions:
+                self.checkbox_functions[item]()
+
+        # 모든 gui 복원
+        self.deiconify()
+
+    def run_json_file(self, json_file):
+        json_path = os.path.join(self.json_directory, json_file)
+        if os.path.exists(json_path):
+            subprocess.run(["python", "SimpleMouseTracker.py", json_path])
+        else:
+            print(f"Warning: JSON file {json_file} not found.")
+
+    def is_midas_gen_open(self, file_path):
+        def callback(hwnd, hwnds):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                try:
+                    process = psutil.Process(pid)
+                    if any(
+                        file_path.lower() in cmd.lower() for cmd in process.cmdline()
+                    ):
+                        hwnds.append(hwnd)
+                except psutil.NoSuchProcess:
+                    pass
+            return True
+
+        hwnds = []
+        win32gui.EnumWindows(callback, hwnds)
+        return bool(hwnds)
+
+    # 각 체크박스에 대한 개별 함수들
+    def run_type_division(self):
+        print("타입분할 작업 시작")
+        solar_file = self.file_entries["태양광"].get()
+        if not solar_file:
+            print("태양광 파일이 없습니다.")
+            return
+
+        if not self.is_midas_gen_open(solar_file):
+            self.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+
+        # self.run_json_file("display.json")
+        # self.run_json_file("calculate.json")
+        # self.run_json_file("steel_code_check.json")
+        # self.run_json_file("cold_formed_steel_code_check.json")
+        self.run_json_file("table.json")
+        print("타입분할 작업 완료")
+
+    def run_building_solar_integration(self):
+        print("건물 / 태양광 통합 작업 시작")
+        self.run_json_file("calculate.json")
+        # 여기에 중간 작업 추가 가능
+        self.run_json_file("test.json")
+        print("건물 / 태양광 통합 작업 완료")
+
+    def run_crane(self):
+        print("크레인 작업 시작")
+        self.run_json_file("crane.json")
+        print("크레인 작업 완료")
+
+    def run_earthquake(self):
+        print("지진 작업 시작")
+        self.run_json_file("earthquake.json")
+        print("지진 작업 완료")
+
+    def run_floor_load(self):
+        print("바닥 활하중 작업 시작")
+        self.run_json_file("floor_load.json")
+        print("바닥 활하중 작업 완료")
+
+    def run_dead_load(self):
+        print("기타 고정하중 작업 시작")
+        self.run_json_file("dead_load.json")
+        print("기타 고정하중 작업 완료")
+
+    def run_purlin(self):
+        print("펄린 작업 시작")
+        self.run_json_file("purlin.json")
+        print("펄린 작업 완료")
+
+    def run_basic_solar(self):
+        print("기본형 태양광 작업 시작")
+        self.run_json_file("basic_solar.json")
+        print("기본형 태양광 작업 완료")
+
+    def run_attached_solar(self):
+        print("부착형 태양광 작업 시작")
+        self.run_json_file("attached_solar.json")
+        print("부착형 태양광 작업 완료")
+
+    def run_aluminum_solar(self):
+        print("알류미늄 태양광 작업 시작")
+        self.run_json_file("aluminum_solar.json")
+        print("알류미늄 태양광 작업 완료")
+
+    def run_footing(self):
+        print("토지위(푸팅) 작업 시작")
+        self.run_json_file("footing.json")
+        print("토지위(푸팅) 작업 완료")
+
+    def run_pile(self):
+        print("토지위(파일) 작업 시작")
+        self.run_json_file("pile.json")
+        print("토지위(파일) 작업 완료")
+
+    def run_slab(self):
+        print("슬라브위 작업 시작")
+        self.run_json_file("slab.json")
+        print("슬라브위 작업 완료")
+
+    def run_on_building(self):
+        print("건물위 작업 시작")
+        self.run_json_file("on_building.json")
+        print("건물위 작업 완료")
+
+    def run_joint(self):
+        print("접합부 작업 시작")
+        self.run_json_file("joint.json")
+        print("접합부 작업 완료")
+
+    def run_safety_rope(self):
+        print("안전로프 작업 시작")
+        self.run_json_file("safety_rope.json")
+        print("안전로프 작업 완료")
+
+    def open_midas_gen_file(self, file_path, x, y, width, height):
+        midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"
+
+        # 프로그램을 숨긴 상태로 실행
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        proc = subprocess.Popen(
+            [midas_gen_executable, file_path], startupinfo=startupinfo
+        )
+
+        time.sleep(60)  # 프로그램이 완전히 로드될 때까지 대기
+
+        pid = proc.pid
+        hwnds = self.get_hwnds_for_pid(pid)
+
+        if hwnds:
+            hwnd = hwnds[0]
+            top_hwnd = self.get_top_level_parent(hwnd)
+            # 창 위치와 크기 설정
+            win32gui.SetWindowPos(
+                top_hwnd,
+                win32con.HWND_TOP,
+                x,
+                y,
+                width,
+                height,
+                win32con.SWP_NOACTIVATE,
+            )
+        else:
+            print("윈도우 핸들을 찾을 수 없습니다.")
+
+    def get_top_level_parent(self, hwnd):
+        parent = hwnd
+        while True:
+            new_parent = win32gui.GetParent(parent)
+            if new_parent == 0:
+                return parent
+            parent = new_parent
+
+    def open_midas_design_file(self, file_path, x, y, width, height):
+        midas_design_executable = (
+            "C:\\Program Files\\MIDAS\\MODS\\Midas Design+\\Design+.exe"
+        )
+
+        # 프로그램을 숨긴 상태로 실행
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        proc = subprocess.Popen(
+            [midas_design_executable, file_path], startupinfo=startupinfo
+        )
+
+        time.sleep(30)  # 프로그램이 완전히 로드될 때까지 대기
+
+        pid = proc.pid
+        hwnds = self.get_hwnds_for_pid(pid)
+
+        if hwnds:
+            hwnd = hwnds[0]
+            # 창 위치와 크기 설정 (여전히 숨겨진 상태)
+            win32gui.SetWindowPos(
+                hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_NOACTIVATE
+            )
+        else:
+            print("윈도우 핸들을 찾을 수 없습니다.")
+
+    def get_hwnds_for_pid(self, pid):
+        def callback(hwnd, hwnds):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if found_pid == pid:
+                    hwnds.append(hwnd)
+            return True
+
+        hwnds = []
+        win32gui.EnumWindows(callback, hwnds)
+        return hwnds
 
 
 if __name__ == "__main__":
