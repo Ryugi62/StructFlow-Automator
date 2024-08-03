@@ -27,6 +27,7 @@ SAMPLE_TARGETS_DIR = os.path.join(
     "sample_targets",
 )
 
+
 def configure_logging():
     logging.basicConfig(
         level=logging.DEBUG,
@@ -34,7 +35,9 @@ def configure_logging():
         handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
     )
 
+
 configure_logging()
+
 
 class AutoMouseTracker:
     def __init__(self, script_path):
@@ -52,7 +55,7 @@ class AutoMouseTracker:
 
     def load_script(self):
         try:
-            with open(self.script_path, 'r', encoding='utf-8') as f:
+            with open(self.script_path, "r", encoding="utf-8") as f:
                 self.script = json.load(f)
             logging.info(f"Script loaded from {self.script_path}")
         except Exception as e:
@@ -90,11 +93,15 @@ class AutoMouseTracker:
                         logging.warning("Target hwnd not found, retrying...")
                     time.sleep(1)
 
-            if event.get("condition") in ["이미지가 있으면 스킵", "이미지가 없으면 스킵"]:
+            if event.get("condition") in [
+                "이미지가 있으면 스킵",
+                "이미지가 없으면 스킵",
+            ]:
                 hwnd = self.find_target_hwnd(event)
                 image_present = self.check_image_presence(event, hwnd)
-                if (event["condition"] == "이미지가 있으면 스킵" and image_present) or \
-                   (event["condition"] == "이미지가 없으면 스킵" and not image_present):
+                if (event["condition"] == "이미지가 있으면 스킵" and image_present) or (
+                    event["condition"] == "이미지가 없으면 스킵" and not image_present
+                ):
                     logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
                     process_event(index + 1)
@@ -184,7 +191,16 @@ class AutoMouseTracker:
             if self.is_valid_process(found_pid, program_name, program_path):
                 class_name = win32gui.GetClassName(hwnd)
                 window_text = win32gui.GetWindowText(hwnd)
-                if self.matches_window_criteria(class_name, window_text, window_class, window_name, window_title, window_rect, hwnd, ignore_pos_size):
+                if self.matches_window_criteria(
+                    class_name,
+                    window_text,
+                    window_class,
+                    window_name,
+                    window_title,
+                    window_rect,
+                    hwnd,
+                    ignore_pos_size,
+                ):
                     hwnds.append(hwnd)
                 hwnds.extend(
                     self.find_all_child_windows(
@@ -228,7 +244,9 @@ class AutoMouseTracker:
                 if self.is_valid_process(found_pid, program_name, program_path):
                     class_name = win32gui.GetClassName(hwnd)
                     window_text = win32gui.GetWindowText(hwnd)
-                    if self.matches_window_criteria(class_name, window_text, window_class, window_name, window_title):
+                    if self.matches_window_criteria(
+                        class_name, window_text, window_class, window_name, window_title
+                    ):
                         hwnds.append(hwnd)
             return True
 
@@ -415,9 +433,23 @@ class AutoMouseTracker:
             return False
 
     def is_valid_window(self, hwnd):
-        return win32gui.IsWindow(hwnd) and win32gui.IsWindowEnabled(hwnd) and win32gui.IsWindowVisible(hwnd)
+        return (
+            win32gui.IsWindow(hwnd)
+            and win32gui.IsWindowEnabled(hwnd)
+            and win32gui.IsWindowVisible(hwnd)
+        )
 
-    def matches_window_criteria(self, class_name, window_text, window_class, window_name, window_title, window_rect=None, hwnd=None, ignore_pos_size=False):
+    def matches_window_criteria(
+        self,
+        class_name,
+        window_text,
+        window_class,
+        window_name,
+        window_title,
+        window_rect=None,
+        hwnd=None,
+        ignore_pos_size=False,
+    ):
         class_match = window_class in class_name if window_class else True
         name_match = window_name == window_text if window_name else True
         title_match = window_title == window_text if window_title else True
@@ -449,9 +481,7 @@ class AutoMouseTracker:
             for image_path in event.get("image_paths", []):
                 target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
                 if target_image is not None:
-                    result = cv2.matchTemplate(
-                        img, target_image, cv2.TM_CCOEFF_NORMED
-                    )
+                    result = cv2.matchTemplate(img, target_image, cv2.TM_CCOEFF_NORMED)
                     _, max_val, _, max_loc = cv2.minMaxLoc(result)
                     if max_val >= event.get("similarity_threshold", 0.6):
                         event["relative_x"], event["relative_y"] = max_loc
@@ -473,6 +503,7 @@ class AutoMouseTracker:
             time.sleep(0.5)
             lParam = win32api.MAKELONG(screen_x, screen_y)
         return lParam
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
