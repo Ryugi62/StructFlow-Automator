@@ -9,6 +9,101 @@ from tkinter import filedialog, Listbox, TclError
 import customtkinter as ctk
 from dotenv import load_dotenv
 
+class MidasWindowManager:
+    def __init__(self):
+        self.original_position = None
+        self.original_size = None
+        self.midas_hwnd = None
+
+    def is_midas_gen_open(self, file_path):
+        def callback(hwnd, hwnds):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                try:
+                    process = psutil.Process(pid)
+                    if any(file_path.lower() in cmd.lower() for cmd in process.cmdline()):
+                        hwnds.append(hwnd)
+                except psutil.NoSuchProcess:
+                    pass
+            return True
+
+        hwnds = []
+        win32gui.EnumWindows(callback, hwnds)
+        if hwnds:
+            self.midas_hwnd = hwnds[0]
+        return bool(hwnds)
+
+    def open_midas_gen_file(self, file_path, x, y, width, height):
+        midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"
+
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = win32con.SW_HIDE
+        proc = subprocess.Popen([midas_gen_executable, file_path], startupinfo=startupinfo)
+
+        time.sleep(60)  # Wait for the program to load
+
+        pid = proc.pid
+        hwnds = self.get_hwnds_for_pid(pid)
+
+        if hwnds:
+            self.midas_hwnd = hwnds[0]
+            top_hwnd = self.get_top_level_parent(self.midas_hwnd)
+            self.save_original_position_and_size(top_hwnd)
+            self.set_window_position_and_size(top_hwnd, x, y, width, height)
+        else:
+            print("Window handle not found.")
+
+    def save_original_position_and_size(self, hwnd):
+        rect = win32gui.GetWindowRect(hwnd)
+        self.original_position = (rect[0], rect[1])
+        self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
+
+    def set_window_position_and_size(self, hwnd, x, y, width, height):
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOP,
+            x,
+            y,
+            width,
+            height,
+            win32con.SWP_NOACTIVATE,
+        )
+
+    def restore_original_position_and_size(self):
+        if self.midas_hwnd and self.original_position and self.original_size:
+            top_hwnd = self.get_top_level_parent(self.midas_hwnd)
+            self.set_window_position_and_size(
+                top_hwnd,
+                self.original_position[0],
+                self.original_position[1],
+                self.original_size[0],
+                self.original_size[1]
+            )
+
+    def close_midas_gen(self):
+        if self.midas_hwnd:
+            win32gui.PostMessage(self.midas_hwnd, win32con.WM_CLOSE, 0, 0)
+
+    def get_top_level_parent(self, hwnd):
+        parent = hwnd
+        while True:
+            new_parent = win32gui.GetParent(parent)
+            if new_parent == 0:
+                return parent
+            parent = new_parent
+
+    def get_hwnds_for_pid(self, pid):
+        def callback(hwnd, hwnds):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
+                _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if found_pid == pid:
+                    hwnds.append(hwnd)
+            return True
+
+        hwnds = []
+        win32gui.EnumWindows(callback, hwnds)
+        return hwnds
 
 class SingletonApp:
     _instance = None
@@ -17,7 +112,6 @@ class SingletonApp:
         if not cls._instance:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
-
 
 class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items, file_entries):
@@ -127,7 +221,6 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         self.grab_release()
         self.destroy()
 
-
 class App(SingletonApp, ctk.CTk):
     WINDOW_GEOMETRY = "1280x768"
     WINDOW_TITLE = "Midas Linker"
@@ -167,6 +260,7 @@ class App(SingletonApp, ctk.CTk):
         self.show_tab(1)
         self.json_directory = os.path.join(os.path.dirname(__file__), "json_scripts")
         self.ensure_json_directory()
+        self.window_manager = MidasWindowManager()
 
     def configure_gui(self):
         self.geometry(self.WINDOW_GEOMETRY)
@@ -241,7 +335,7 @@ class App(SingletonApp, ctk.CTk):
 
     def add_section_label(self, parent, text, y, x=0.05):
         ctk.CTkLabel(parent, text=text, font=("Roboto Medium", 20)).place(
-            relx=x, rely=y, anchor=ctk.W
+relx=x, rely=y, anchor=ctk.W
         )
 
     def open_file_dialog(self, entry_widget):
@@ -374,25 +468,6 @@ class App(SingletonApp, ctk.CTk):
         else:
             print(f"Warning: JSON file {json_file} not found.")
 
-    def is_midas_gen_open(self, file_path):
-        def callback(hwnd, hwnds):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                try:
-                    process = psutil.Process(pid)
-                    if any(
-                        file_path.lower() in cmd.lower() for cmd in process.cmdline()
-                    ):
-                        hwnds.append(hwnd)
-                except psutil.NoSuchProcess:
-                    pass
-            return True
-
-        hwnds = []
-        win32gui.EnumWindows(callback, hwnds)
-        return bool(hwnds)
-
-    # 각 체크박스에 대한 개별 함수들
     def run_type_division(self):
         print("타입분할 작업 시작")
         solar_file = self.file_entries["태양광"].get()
@@ -400,14 +475,21 @@ class App(SingletonApp, ctk.CTk):
             print("태양광 파일이 없습니다.")
             return
 
-        if not self.is_midas_gen_open(solar_file):
-            self.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+        if not self.window_manager.is_midas_gen_open(solar_file):
+            self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+        else:
+            print("Midas Gen이 이미 열려 있습니다.")
+            self.window_manager.save_original_position_and_size(self.window_manager.midas_hwnd)
+            self.window_manager.set_window_position_and_size(self.window_manager.midas_hwnd, 17, 14, 1906, 1028)
 
         self.run_json_file("display.json")
-        self.run_json_file("calculate.json")
-        self.run_json_file("steel_code_check.json")
-        self.run_json_file("cold_formed_steel_code_check.json")
-        self.run_json_file("table.json")
+        # self.run_json_file("calculate.json")
+        # self.run_json_file("steel_code_check.json")
+        # self.run_json_file("cold_formed_steel_code_check.json")
+        # self.run_json_file("table.json")
+
+        self.window_manager.restore_original_position_and_size()
+        self.window_manager.close_midas_gen()
         print("타입분할 작업 완료")
 
     def run_building_solar_integration(self):
@@ -486,97 +568,6 @@ class App(SingletonApp, ctk.CTk):
         print("안전로프 작업 시작")
         self.run_json_file("safety_rope.json")
         print("안전로프 작업 완료")
-
-    def open_midas_gen_file(self, file_path, x, y, width, height):
-        midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"
-
-        # 프로그램을 숨긴 상태로 실행
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = win32con.SW_HIDE
-        proc = subprocess.Popen(
-            [midas_gen_executable, file_path], startupinfo=startupinfo
-        )
-
-        time.sleep(60)  # 프로그램이 완전히 로드될 때까지 대기
-
-        pid = proc.pid
-        hwnds = self.get_hwnds_for_pid(pid)
-
-        if hwnds:
-            hwnd = hwnds[0]
-            top_hwnd = self.get_top_level_parent(hwnd)
-            # 창 위치와 크기 설정
-            win32gui.SetWindowPos(
-                top_hwnd,
-                win32con.HWND_TOP,
-                x,
-                y,
-                width,
-                height,
-                win32con.SWP_NOACTIVATE,
-            )
-        else:
-            print("윈도우 핸들을 찾을 수 없습니다.")
-
-    def get_top_level_parent(self, hwnd):
-        parent = hwnd
-        while True:
-            new_parent = win32gui.GetParent(parent)
-            if new_parent == 0:
-                return parent
-            parent = new_parent
-
-    def open_midas_design_file(self, file_path, x, y, width, height):
-        midas_design_executable = (
-            "C:\\Program Files\\MIDAS\\MODS\\Midas Design+\\Design+.exe"
-        )
-
-        # 프로그램을 숨긴 상태로 실행
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = win32con.SW_HIDE
-        proc = subprocess.Popen(
-            [midas_design_executable, file_path], startupinfo=startupinfo
-        )
-
-        time.sleep(60)  # 프로그램이 완전히 로드될 때까지 대기
-
-        pid = proc.pid
-        hwnds = self.get_hwnds_for_pid(pid)
-
-        if hwnds:
-            hwnd = hwnds[0]
-            # 창 위치와 크기 설정 (여전히 숨겨진 상태)
-            win32gui.SetWindowPos(
-                hwnd, win32con.HWND_TOP, x, y, width, height, win32con.SWP_NOACTIVATE
-            )
-
-            # z-order를 최하위로 설정하여 화면에 보이지 않게 함
-            win32gui.SetWindowPos(
-                hwnd,
-                win32con.HWND_BOTTOM,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
-            )
-        else:
-            print("윈도우 핸들을 찾을 수 없습니다.")
-
-    def get_hwnds_for_pid(self, pid):
-        def callback(hwnd, hwnds):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-                if found_pid == pid:
-                    hwnds.append(hwnd)
-            return True
-
-        hwnds = []
-        win32gui.EnumWindows(callback, hwnds)
-        return hwnds
-
 
 if __name__ == "__main__":
     app = App()
