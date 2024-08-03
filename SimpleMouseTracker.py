@@ -11,6 +11,7 @@ import win32process
 import win32api
 import win32con
 import win32ui
+import threading
 from logging.handlers import RotatingFileHandler
 from ctypes import windll
 
@@ -26,6 +27,9 @@ SAMPLE_TARGETS_DIR = os.path.join(
     "StructFlow-Automator-Private",
     "sample_targets",
 )
+
+# Maximum retry count for click events
+MAX_RETRY_COUNT = 5
 
 
 def configure_logging():
@@ -52,6 +56,7 @@ class AutoMouseTracker:
         self.custom_image_path = None
         self.running_script = False
         self.load_script()
+        self.lock = threading.Lock()
 
     def load_script(self):
         try:
@@ -118,7 +123,7 @@ class AutoMouseTracker:
             time.sleep(0.5)
             process_event(index + 1)
 
-        process_event(0)
+        threading.Thread(target=process_event, args=(0,)).start()
 
     def process_single_event(self, event):
         hwnd = self.find_target_hwnd(event)
@@ -136,14 +141,25 @@ class AutoMouseTracker:
         if event.get("auto_update_target", False):
             self.update_target_position(event, hwnd)
 
-        self.send_click_event(
-            event["relative_x"],
-            event["relative_y"],
-            hwnd,
-            event["move_cursor"],
-            event.get("double_click", False),
-            event["button"],
-        )
+        success = False
+        attempt = 0
+        while not success and attempt < MAX_RETRY_COUNT:
+            success = self.send_click_event(
+                event["relative_x"],
+                event["relative_y"],
+                hwnd,
+                event["move_cursor"],
+                event.get("double_click", False),
+                event["button"],
+            )
+            if not success:
+                logging.warning(f"Click event failed, retrying... (Attempt {attempt + 1})")
+                attempt += 1
+                time.sleep(1)  # Wait before retrying
+
+        if not success:
+            logging.error("Click event failed after maximum retries.")
+            return False
 
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
@@ -301,7 +317,7 @@ class AutoMouseTracker:
     ):
         if not self.is_valid_window(hwnd):
             logging.warning(f"Invalid hwnd: {hwnd}")
-            return
+            return False
 
         if move_cursor:
             self.move_cursor(relative_y)
@@ -311,8 +327,10 @@ class AutoMouseTracker:
         try:
             self.simulate_click(button, hwnd, lParam, double_click)
             logging.debug("Click event sent successfully.")
+            return True
         except Exception as e:
             logging.error(f"Failed to send click event: {e}")
+            return False
 
     def send_keyboard_input(self, text, hwnd):
         for char in text:
