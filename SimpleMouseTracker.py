@@ -30,7 +30,7 @@ SAMPLE_TARGETS_DIR = os.path.join(
 
 # Maximum retry count for click events
 MAX_RETRY_COUNT = 5
-
+MINIMUM_CLICK_DELAY = 2  # 최소 대기시간 2초
 
 def configure_logging():
     logging.basicConfig(
@@ -39,9 +39,7 @@ def configure_logging():
         handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
     )
 
-
 configure_logging()
-
 
 class AutoMouseTracker:
     def __init__(self, script_path):
@@ -120,7 +118,7 @@ class AutoMouseTracker:
             self.progress_bar_value = index + 1
 
             logging.info(f"Processed event {index + 1}/{len(self.script)}")
-            time.sleep(0.5)
+            time.sleep(MINIMUM_CLICK_DELAY)  # 최소 대기시간 적용
             process_event(index + 1)
 
         threading.Thread(target=process_event, args=(0,)).start()
@@ -139,7 +137,8 @@ class AutoMouseTracker:
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
-            time.sleep(click_delay / 1000)
+            logging.info(f"Waiting for {click_delay} seconds...")
+            time.sleep(click_delay)
 
         if event.get("auto_update_target", False):
             self.update_target_position(event, hwnd)
@@ -148,7 +147,7 @@ class AutoMouseTracker:
         attempt = 0
         while not success and attempt < MAX_RETRY_COUNT:
             # Check if the mouse button is pressed or the mouse is moving
-            while self.is_mouse_button_pressed() or self.is_mouse_moving():
+            while self.is_mouse_button_pressed() or self.is_mouse_moving() or self.is_keyboard_event_active():
                 time.sleep(0.1)
 
             success = self.send_click_event(
@@ -160,7 +159,9 @@ class AutoMouseTracker:
                 event["button"],
             )
             if not success:
-                logging.warning(f"Click event failed, retrying... (Attempt {attempt + 1})")
+                logging.warning(
+                    f"Click event failed, retrying... (Attempt {attempt + 1})"
+                )
                 attempt += 1
                 time.sleep(1)  # Wait before retrying
 
@@ -171,14 +172,30 @@ class AutoMouseTracker:
         # Restore the window if it was hidden
         if window_hidden:
             win32gui.SetWindowPos(
-                hwnd, win32con.HWND_TOP, 0, 0, 0, 0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                hwnd,
+                win32con.HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
             )
 
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
+        # 추가된 부분: 클릭 후 이미지 확인
+        if not self.verify_click(event, hwnd):
+            logging.error("Click verification failed.")
+            return False
+
+        return True
+
+    def verify_click(self, event, hwnd):
+        time.sleep(1)  # 이미지 갱신을 위해 잠시 대기
+        if "verify_image" in event:
+            return self.check_image_presence({"image": event["verify_image"]}, hwnd)
         return True
 
     def is_mouse_button_pressed(self):
@@ -189,6 +206,12 @@ class AutoMouseTracker:
         if current_pos != self.current:
             self.current = current_pos
             return True
+        return False
+
+    def is_keyboard_event_active(self):
+        for i in range(8, 256):
+            if win32api.GetAsyncKeyState(i):
+                return True
         return False
 
     def find_target_hwnd(self, event):
@@ -550,18 +573,22 @@ class AutoMouseTracker:
         try:
             # Get the parent window
             parent_hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOTOWNER)
-            
+
             # Move the window to the bottom of the Z-order
             win32gui.SetWindowPos(
-                parent_hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+                parent_hwnd,
+                win32con.HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
             )
             logging.info(f"Window {hwnd} moved to bottom")
             return True
         except Exception as e:
             logging.error(f"Failed to set window to bottom: {e}")
             return False
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
