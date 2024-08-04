@@ -483,6 +483,8 @@ class AutoMouseTracker:
         else:
             win32gui.PostMessage(hwnd, event_type, 0, lParam)
 
+        win32gui.PumpWaitingMessages()
+
     def get_window_depth(self, hwnd):
         depth = 0
         while hwnd != 0:
