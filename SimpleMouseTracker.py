@@ -30,7 +30,8 @@ SAMPLE_TARGETS_DIR = os.path.join(
 
 # Maximum retry count for click events
 MAX_RETRY_COUNT = 5
-MINIMUM_CLICK_DELAY = 2  # 최소 대기시간 2초
+MINIMUM_CLICK_DELAY = 1  # 최소 대기시간 2초
+
 
 def configure_logging():
     logging.basicConfig(
@@ -39,7 +40,9 @@ def configure_logging():
         handlers=[RotatingFileHandler(LOG_FILE, maxBytes=10**6, backupCount=3)],
     )
 
+
 configure_logging()
+
 
 class AutoMouseTracker:
     def __init__(self, script_path):
@@ -133,7 +136,7 @@ class AutoMouseTracker:
             return False
 
         # Hide the window by moving it to the bottom
-        window_hidden = self.set_window_to_bottom(hwnd)
+        # self.set_window_to_bottom(hwnd)
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
@@ -147,8 +150,6 @@ class AutoMouseTracker:
         attempt = 0
         while not success and attempt < MAX_RETRY_COUNT:
             # Check if the mouse button is pressed or the mouse is moving
-            while self.is_mouse_button_pressed() or self.is_mouse_moving() or self.is_keyboard_event_active():
-                time.sleep(0.1)
 
             success = self.send_click_event(
                 event["relative_x"],
@@ -168,18 +169,6 @@ class AutoMouseTracker:
         if not success:
             logging.error("Click event failed after maximum retries.")
             return False
-
-        # Restore the window if it was hidden
-        if window_hidden:
-            win32gui.SetWindowPos(
-                hwnd,
-                win32con.HWND_TOP,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
-            )
 
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
@@ -372,6 +361,12 @@ class AutoMouseTracker:
         lParam = self.get_lparam(relative_x, relative_y, hwnd)
 
         try:
+            while (
+                self.is_mouse_button_pressed()
+                or self.is_mouse_moving()
+                or self.is_keyboard_event_active()
+            ):
+                time.sleep(0.1)
             self.simulate_click(button, hwnd, lParam, double_click)
             logging.debug("Click event sent successfully.")
             return True
@@ -380,6 +375,13 @@ class AutoMouseTracker:
             return False
 
     def send_keyboard_input(self, text, hwnd):
+        # 현재 작업 디렉토리 경로
+        current_dir = os.getcwd()
+
+        # 만약 text가 "1"이거나 "2"면 현재 디렉토리 경로 + "1" 또는 "2"로 변경
+        if text in ["1", "2"]:
+            text = os.path.join(current_dir, text)
+
         for char in text:
             win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
             time.sleep(0.05)
@@ -589,6 +591,7 @@ class AutoMouseTracker:
         except Exception as e:
             logging.error(f"Failed to set window to bottom: {e}")
             return False
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
