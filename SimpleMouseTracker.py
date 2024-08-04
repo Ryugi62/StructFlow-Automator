@@ -134,6 +134,9 @@ class AutoMouseTracker:
         if not self.check_conditions(event, hwnd):
             return False
 
+        # Hide the window by moving it to the bottom
+        window_hidden = self.set_window_to_bottom(hwnd)
+
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
             time.sleep(click_delay / 1000)
@@ -144,6 +147,10 @@ class AutoMouseTracker:
         success = False
         attempt = 0
         while not success and attempt < MAX_RETRY_COUNT:
+            # Check if the mouse button is pressed or the mouse is moving
+            while self.is_mouse_button_pressed() or self.is_mouse_moving():
+                time.sleep(0.1)
+
             success = self.send_click_event(
                 event["relative_x"],
                 event["relative_y"],
@@ -161,11 +168,28 @@ class AutoMouseTracker:
             logging.error("Click event failed after maximum retries.")
             return False
 
+        # Restore the window if it was hidden
+        if window_hidden:
+            win32gui.SetWindowPos(
+                hwnd, win32con.HWND_TOP, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+            )
+
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
         return True
+
+    def is_mouse_button_pressed(self):
+        return win32api.GetAsyncKeyState(win32con.VK_LBUTTON) < 0
+
+    def is_mouse_moving(self):
+        current_pos = win32api.GetCursorPos()
+        if current_pos != self.current:
+            self.current = current_pos
+            return True
+        return False
 
     def find_target_hwnd(self, event):
         try:
@@ -521,6 +545,22 @@ class AutoMouseTracker:
             time.sleep(0.5)
             lParam = win32api.MAKELONG(screen_x, screen_y)
         return lParam
+
+    def set_window_to_bottom(self, hwnd):
+        try:
+            # Get the parent window
+            parent_hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOTOWNER)
+            
+            # Move the window to the bottom of the Z-order
+            win32gui.SetWindowPos(
+                parent_hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+            )
+            logging.info(f"Window {hwnd} moved to bottom")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to set window to bottom: {e}")
+            return False
 
 
 if __name__ == "__main__":
