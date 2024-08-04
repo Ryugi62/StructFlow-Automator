@@ -9,6 +9,7 @@ from tkinter import filedialog, Listbox, TclError
 import customtkinter as ctk
 from dotenv import load_dotenv
 
+
 class MidasWindowManager:
     def __init__(self):
         self.original_position = None
@@ -21,7 +22,9 @@ class MidasWindowManager:
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 try:
                     process = psutil.Process(pid)
-                    if any(file_path.lower() in cmd.lower() for cmd in process.cmdline()):
+                    if any(
+                        file_path.lower() in cmd.lower() for cmd in process.cmdline()
+                    ):
                         hwnds.append(hwnd)
                 except psutil.NoSuchProcess:
                     pass
@@ -39,7 +42,9 @@ class MidasWindowManager:
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = win32con.SW_HIDE
-        proc = subprocess.Popen([midas_gen_executable, file_path], startupinfo=startupinfo)
+        proc = subprocess.Popen(
+            [midas_gen_executable, file_path], startupinfo=startupinfo
+        )
 
         time.sleep(60)  # Wait for the program to load
 
@@ -51,7 +56,15 @@ class MidasWindowManager:
             top_hwnd = self.get_top_level_parent(self.midas_hwnd)
             self.save_original_position_and_size(top_hwnd)
             self.set_window_position_and_size(top_hwnd, x, y, width, height)
-            win32gui.SetWindowPos(top_hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOMOVE)
+            win32gui.SetWindowPos(
+                top_hwnd,
+                win32con.HWND_BOTTOM,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
+            )
         else:
             print("Window handle not found.")
 
@@ -72,7 +85,15 @@ class MidasWindowManager:
         )
 
         # z-order를 최하위로 설정
-        win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, win32con.SWP_NOSIZE | win32con.SWP_NOMOVE)
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_BOTTOM,
+            0,
+            0,
+            0,
+            0,
+            win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
+        )
 
     def restore_original_position_and_size(self):
         if self.midas_hwnd and self.original_position and self.original_size:
@@ -82,7 +103,7 @@ class MidasWindowManager:
                 self.original_position[0],
                 self.original_position[1],
                 self.original_size[0],
-                self.original_size[1]
+                self.original_size[1],
             )
 
     def close_midas_gen(self):
@@ -109,6 +130,7 @@ class MidasWindowManager:
         win32gui.EnumWindows(callback, hwnds)
         return hwnds
 
+
 class SingletonApp:
     _instance = None
 
@@ -116,6 +138,7 @@ class SingletonApp:
         if not cls._instance:
             cls._instance = super().__new__(cls, *args, **kwargs)
         return cls._instance
+
 
 class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items, file_entries):
@@ -225,6 +248,7 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         self.grab_release()
         self.destroy()
 
+
 class App(SingletonApp, ctk.CTk):
     WINDOW_GEOMETRY = "1280x768"
     WINDOW_TITLE = "Midas Linker"
@@ -242,7 +266,8 @@ class App(SingletonApp, ctk.CTk):
         self.tabs_content = {}
         self.checkboxes = {}
         self.checkbox_functions = {
-            "타입분할": self.run_type_division,
+            "타입분할(태양광)": self.run_type_division_solar,
+            "타입분할(건물)": self.run_type_division_building,
             "건물 / 태양광 통합": self.run_building_solar_integration,
             "크레인": self.run_crane,
             "지진": self.run_earthquake,
@@ -339,7 +364,7 @@ class App(SingletonApp, ctk.CTk):
 
     def add_section_label(self, parent, text, y, x=0.05):
         ctk.CTkLabel(parent, text=text, font=("Roboto Medium", 20)).place(
-relx=x, rely=y, anchor=ctk.W
+            relx=x, rely=y, anchor=ctk.W
         )
 
     def open_file_dialog(self, entry_widget):
@@ -379,7 +404,7 @@ relx=x, rely=y, anchor=ctk.W
 
     def add_modeling_type_checkboxes(self, parent, start_y, start_x):
         y_offset = start_y + 0.05
-        options = ["타입분할", "건물 / 태양광 통합"]
+        options = ["타입분할(태양광)", "타입분할(건물)", "건물 / 태양광 통합"]
         for option in options:
             checkbox = ctk.CTkCheckBox(parent, text=option)
             checkbox.place(relx=start_x, rely=y_offset, anchor=ctk.W)
@@ -406,7 +431,7 @@ relx=x, rely=y, anchor=ctk.W
         y_offset = start_y + 0.05
         for label in labels:
             checkbox = ctk.CTkCheckBox(parent, text=label)
-            checkbox.place(relx=start_x, rely=y_offset, anchor=ctk.W)
+            checkbox.place(relx=start_x, anchor=ctk.W, rely=y_offset)
             self.checkboxes[label] = checkbox
             y_offset += 0.05
 
@@ -472,8 +497,8 @@ relx=x, rely=y, anchor=ctk.W
         else:
             print(f"Warning: JSON file {json_file} not found.")
 
-    def run_type_division(self):
-        print("타입분할 작업 시작")
+    def run_type_division_solar(self):
+        print("타입분할(태양광) 작업 시작")
         solar_file = self.file_entries["태양광"].get()
         if not solar_file:
             print("태양광 파일이 없습니다.")
@@ -483,8 +508,12 @@ relx=x, rely=y, anchor=ctk.W
             self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
         else:
             print("Midas Gen이 이미 열려 있습니다.")
-            self.window_manager.save_original_position_and_size(self.window_manager.midas_hwnd)
-            self.window_manager.set_window_position_and_size(self.window_manager.midas_hwnd, 17, 14, 1906, 1028)
+            self.window_manager.save_original_position_and_size(
+                self.window_manager.midas_hwnd
+            )
+            self.window_manager.set_window_position_and_size(
+                self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+            )
 
         self.run_json_file("display.json")
         self.run_json_file("calculate.json")
@@ -494,7 +523,35 @@ relx=x, rely=y, anchor=ctk.W
 
         self.window_manager.restore_original_position_and_size()
         self.window_manager.close_midas_gen()
-        print("타입분할 작업 완료")
+        print("타입분할(태양광) 작업 완료")
+
+    def run_type_division_building(self):
+        print("타입분할(건물) 작업 시작")
+        building_file = self.file_entries["건물"].get()
+        if not building_file:
+            print("건물 파일이 없습니다.")
+            return
+
+        if not self.window_manager.is_midas_gen_open(building_file):
+            self.window_manager.open_midas_gen_file(building_file, 17, 14, 1906, 1028)
+        else:
+            print("Midas Gen이 이미 열려 있습니다.")
+            self.window_manager.save_original_position_and_size(
+                self.window_manager.midas_hwnd
+            )
+            self.window_manager.set_window_position_and_size(
+                self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+            )
+
+        self.run_json_file("display.json")
+        self.run_json_file("calculate.json")
+        self.run_json_file("steel_code_check.json")
+        self.run_json_file("cold_formed_steel_code_check.json")
+        self.run_json_file("table.json")
+
+        self.window_manager.restore_original_position_and_size()
+        self.window_manager.close_midas_gen()
+        print("타입분할(건물) 작업 완료")
 
     def run_building_solar_integration(self):
         print("건물 / 태양광 통합 작업 시작")
@@ -572,6 +629,7 @@ relx=x, rely=y, anchor=ctk.W
         print("안전로프 작업 시작")
         self.run_json_file("safety_rope.json")
         print("안전로프 작업 완료")
+
 
 if __name__ == "__main__":
     app = App()
