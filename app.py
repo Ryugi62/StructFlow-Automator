@@ -497,6 +497,10 @@ class App(SingletonApp, ctk.CTk):
         else:
             print(f"Warning: JSON file {json_file} not found.")
 
+    def save_clipboard_to_file(self, file_path):
+        with open(file_path, "w") as f:
+            f.write(self.clipboard_get())  # clipboard_get()는 customtkinter의 메소드
+
     def run_type_division_solar(self):
         print("타입분할(태양광) 작업 시작")
         solar_file = self.file_entries["태양광"].get()
@@ -518,8 +522,11 @@ class App(SingletonApp, ctk.CTk):
         self.run_json_file("display.json")
         self.run_json_file("calculate.json")
         self.run_json_file("steel_code_check.json")
+        self.save_clipboard_to_file("solar_steel_code_check.txt")
         self.run_json_file("cold_formed_steel_code_check.json")
+        self.save_clipboard_to_file("solar_cold_formed_steel_code_check.txt")
         self.run_json_file("table.json")
+        self.save_clipboard_to_file("solar_table.txt")
 
         self.window_manager.restore_original_position_and_size()
         self.window_manager.close_midas_gen()
@@ -546,8 +553,11 @@ class App(SingletonApp, ctk.CTk):
         self.run_json_file("display.json")
         self.run_json_file("calculate.json")
         self.run_json_file("steel_code_check.json")
+        self.save_clipboard_to_file("building_steel_code_check.txt")
         self.run_json_file("cold_formed_steel_code_check.json")
+        self.save_clipboard_to_file("building_cold_formed_steel_code_check.txt")
         self.run_json_file("table.json")
+        self.save_clipboard_to_file("building_table.txt")
 
         self.window_manager.restore_original_position_and_size()
         self.window_manager.close_midas_gen()
