@@ -46,7 +46,8 @@ class MidasWindowManager:
             [midas_gen_executable, file_path], startupinfo=startupinfo
         )
 
-        time.sleep(60)  # Wait for the program to load
+        while not self.is_midas_gen_open(file_path):
+            time.sleep(5)
 
         pid = proc.pid
         hwnds = self.get_hwnds_for_pid(pid)
@@ -74,6 +75,9 @@ class MidasWindowManager:
         self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
 
     def set_window_position_and_size(self, hwnd, x, y, width, height):
+        # 최소화 되어 있을 경우 복원
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
         win32gui.SetWindowPos(
             hwnd,
             win32con.HWND_TOP,
@@ -498,39 +502,72 @@ class App(SingletonApp, ctk.CTk):
             print(f"Warning: JSON file {json_file} not found.")
 
     def save_clipboard_to_file(self, file_path):
+        content = self.clipboard_get()  # clipboard_get()는 customtkinter의 메소드
+        if not content.strip():  # 클립보드 내용이 비어 있거나 공백만 있는지 확인
+            print(
+                f"경고: 클립보드가 비어 있습니다. 파일 {file_path}이(가) 저장되지 않았습니다."
+            )
+            return False
+
         with open(file_path, "w") as f:
-            f.write(self.clipboard_get())  # clipboard_get()는 customtkinter의 메소드
+            f.write(content)
+
+        # 파일이 생성되었고 내용이 있는지 다시 확인
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            print(f"파일 {file_path}이(가) 성공적으로 저장되었습니다.")
+            return True
+        else:
+            print(f"경고: 파일 {file_path}이(가) 비어 있거나 생성되지 않았습니다.")
+            return False
 
     def run_type_division_solar(self):
-        print("타입분할(태양광) 작업 시작")
-        solar_file = self.file_entries["태양광"].get()
-        if not solar_file:
-            print("태양광 파일이 없습니다.")
-            return
+        while True:
+            print("타입분할(태양광) 작업 시작")
+            solar_file = self.file_entries["태양광"].get()
+            if not solar_file:
+                print("태양광 파일이 없습니다.")
+                return
 
-        if not self.window_manager.is_midas_gen_open(solar_file):
-            self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
-        else:
-            print("Midas Gen이 이미 열려 있습니다.")
-            self.window_manager.save_original_position_and_size(
-                self.window_manager.midas_hwnd
-            )
-            self.window_manager.set_window_position_and_size(
-                self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-            )
+            if not self.window_manager.is_midas_gen_open(solar_file):
+                self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+            else:
+                print("Midas Gen이 이미 열려 있습니다.")
+                self.window_manager.save_original_position_and_size(
+                    self.window_manager.midas_hwnd
+                )
+                self.window_manager.set_window_position_and_size(
+                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                )
 
-        self.run_json_file("display.json")
-        self.run_json_file("calculate.json")
-        self.run_json_file("steel_code_check.json")
-        self.save_clipboard_to_file("solar_steel_code_check.txt")
-        self.run_json_file("cold_formed_steel_code_check.json")
-        self.save_clipboard_to_file("solar_cold_formed_steel_code_check.txt")
-        self.run_json_file("table.json")
-        self.save_clipboard_to_file("solar_table.txt")
+            self.run_json_file("display.json")
+            self.run_json_file("calculate.json")
 
-        self.window_manager.restore_original_position_and_size()
-        self.window_manager.close_midas_gen()
-        print("타입분할(태양광) 작업 완료")
+            # Steel code check
+            self.run_json_file("steel_code_check.json")
+            if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
+                print("Steel code check failed. Restarting from the beginning.")
+                continue
+
+            # Cold formed steel code check
+            self.run_json_file("cold_formed_steel_code_check.json")
+            if not self.save_clipboard_to_file(
+                "solar_cold_formed_steel_code_check.txt"
+            ):
+                print(
+                    "Cold formed steel code check failed. Restarting from the beginning."
+                )
+                continue
+
+            # Table
+            self.run_json_file("table.json")
+            if not self.save_clipboard_to_file("solar_table.txt"):
+                print("Table generation failed. Restarting from the beginning.")
+                continue
+
+            self.window_manager.restore_original_position_and_size()
+            self.window_manager.close_midas_gen()
+            print("타입분할(태양광) 작업 완료")
+            break  # 모든 작업이 성공적으로 완료되면 루프를 종료합니다.
 
     def run_type_division_building(self):
         print("타입분할(건물) 작업 시작")
