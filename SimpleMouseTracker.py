@@ -23,7 +23,7 @@ WM_RBUTTONDOWN = 0x0204
 WM_RBUTTONUP = 0x0205
 LOG_FILE = "mouse_tracker.log"
 SAMPLE_TARGETS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
+    os.path.dirname(os.path.abspath(__name__)),
     "StructFlow-Automator-Private",
     "sample_targets",
 )
@@ -121,7 +121,6 @@ class AutoMouseTracker:
             self.progress_bar_value = index + 1
 
             logging.info(f"Processed event {index + 1}/{len(self.script)}")
-            time.sleep(MINIMUM_CLICK_DELAY)  # 최소 대기시간 적용
             process_event(index + 1)
 
         threading.Thread(target=process_event, args=(0,)).start()
@@ -136,7 +135,8 @@ class AutoMouseTracker:
             return False
 
         # Hide the window by moving it to the bottom
-        # self.set_window_to_bottom(hwnd)
+        self.set_window_to_bottom(hwnd)
+        time.sleep(MINIMUM_CLICK_DELAY)
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
@@ -355,9 +355,6 @@ class AutoMouseTracker:
             logging.warning(f"Invalid hwnd: {hwnd}")
             return False
 
-        if move_cursor:
-            self.move_cursor(relative_y)
-
         lParam = self.get_lparam(relative_x, relative_y, hwnd)
 
         try:
@@ -367,6 +364,10 @@ class AutoMouseTracker:
                 or self.is_keyboard_event_active()
             ):
                 time.sleep(0.1)
+
+            if move_cursor:
+                self.move_cursor(relative_y)
+
             self.simulate_click(button, hwnd, lParam, double_click)
             logging.debug("Click event sent successfully.")
             return True
@@ -376,7 +377,10 @@ class AutoMouseTracker:
 
     def send_keyboard_input(self, text, hwnd):
         # 현재 작업 디렉토리 경로
-        current_dir = os.getcwd()
+        current_dir = os.path.dirname(os.path.abspath(__name__))
+        current_dir = os.path.join(current_dir, "temp")
+        if not os.path.exists(current_dir):
+            os.makedirs(current_dir)
 
         # 만약 text가 "1"이거나 "2"면 현재 디렉토리 경로 + "1" 또는 "2"로 변경
         if text in ["1", "2"]:
@@ -559,8 +563,7 @@ class AutoMouseTracker:
     def move_cursor(self, current_y):
         current_x, current_y = win32api.GetCursorPos()
         screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-        move_direction = 10 if current_y == 0 else -10
-        new_y = max(0, min(screen_height - 1, current_y + move_direction))
+        new_y = current_y + 10 if current_y + 10 < screen_height else current_y - 10
         win32api.SetCursorPos((current_x, new_y))
         time.sleep(0.1)
 
