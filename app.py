@@ -5,8 +5,9 @@ import psutil
 import win32gui
 import win32con
 import win32process
-from tkinter import filedialog, Listbox, TclError
 import customtkinter as ctk
+import pyperclip
+from tkinter import filedialog, Listbox, TclError
 from dotenv import load_dotenv
 
 
@@ -19,9 +20,20 @@ class MidasWindowManager:
     def is_midas_gen_open(self, file_path):
         def callback(hwnd, hwnds):
             if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                title = win32gui.GetWindowText(hwnd)
-                if "Midas Gen" in title and file_path in title:
-                    hwnds.append(hwnd)
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                try:
+                    process = psutil.Process(pid)
+                    try:
+                        if any(
+                            file_path.lower() in cmd.lower()
+                            for cmd in process.cmdline()
+                        ):
+                            hwnds.append(hwnd)
+                    except psutil.AccessDenied:
+                        # Skip this process if we don't have permission to access its information
+                        pass
+                except psutil.NoSuchProcess:
+                    pass
             return True
 
         hwnds = []
@@ -41,27 +53,14 @@ class MidasWindowManager:
         )
 
         while not self.is_midas_gen_open(file_path):
+            print("Waiting for Midas Gen to open...")
             time.sleep(5)
 
-        pid = proc.pid
-        hwnds = self.get_hwnds_for_pid(pid)
-
-        if hwnds:
-            self.midas_hwnd = hwnds[0]
-            top_hwnd = self.get_top_level_parent(self.midas_hwnd)
-            self.save_original_position_and_size(top_hwnd)
-            self.set_window_position_and_size(top_hwnd, x, y, width, height)
-            win32gui.SetWindowPos(
-                top_hwnd,
-                win32con.HWND_BOTTOM,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
-            )
-        else:
-            print("Window handle not found.")
+        time.sleep(15)
+            
+        while not self.is_midas_gen_open(file_path):
+            print("Waiting for Midas Gen to open...")
+            time.sleep(5)
 
     def save_original_position_and_size(self, hwnd):
         rect = win32gui.GetWindowRect(hwnd)
@@ -95,14 +94,17 @@ class MidasWindowManager:
 
     def restore_original_position_and_size(self):
         if self.midas_hwnd and self.original_position and self.original_size:
-            top_hwnd = self.get_top_level_parent(self.midas_hwnd)
-            self.set_window_position_and_size(
-                top_hwnd,
-                self.original_position[0],
-                self.original_position[1],
-                self.original_size[0],
-                self.original_size[1],
-            )
+            try:
+                top_hwnd = self.get_top_level_parent(self.midas_hwnd)
+                self.set_window_position_and_size(
+                    top_hwnd,
+                    self.original_position[0],
+                    self.original_position[1],
+                    self.original_size[0],
+                    self.original_size[1],
+                )
+            except win32gui.error as e:
+                print(f"Failed to restore original position and size: {e}")
 
     def close_midas_gen(self):
         if self.midas_hwnd:
@@ -285,7 +287,7 @@ class App(SingletonApp, ctk.CTk):
         self.configure_gui()
         self.create_layout()
         self.show_tab(1)
-        self.json_directory = os.path.join(os.path.dirname(__file__), "json_scripts")
+        self.json_directory = os.path.join(os.path.dirname(__name__), "json_scripts")
         self.ensure_json_directory()
         self.window_manager = MidasWindowManager()
 
@@ -496,23 +498,34 @@ class App(SingletonApp, ctk.CTk):
             print(f"Warning: JSON file {json_file} not found.")
 
     def save_clipboard_to_file(self, file_path):
-        content = self.clipboard_get()  # clipboard_get()는 customtkinter의 메소드
-        if not content.strip():  # 클립보드 내용이 비어 있거나 공백만 있는지 확인
+        try:
+            content = pyperclip.paste()
+        except Exception as e:
+            print(f"클립보드 접근 중 오류 발생: {e}")
+            return False
+
+        if not content.strip():
             print(
                 f"경고: 클립보드가 비어 있습니다. 파일 {file_path}이(가) 저장되지 않았습니다."
             )
             return False
 
-        with open(file_path, "w") as f:
-            f.write(content)
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except IOError as e:
+            print(f"파일 저장 중 오류 발생: {e}")
+            return False
 
-        # 파일이 생성되었고 내용이 있는지 다시 확인
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             print(f"파일 {file_path}이(가) 성공적으로 저장되었습니다.")
             return True
         else:
             print(f"경고: 파일 {file_path}이(가) 비어 있거나 생성되지 않았습니다.")
             return False
+
+    def clipboard_clear(self):
+        pyperclip.copy("")
 
     def run_type_division_solar(self):
         while True:
@@ -524,6 +537,12 @@ class App(SingletonApp, ctk.CTk):
 
             if not self.window_manager.is_midas_gen_open(solar_file):
                 self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+                self.window_manager.save_original_position_and_size(
+                    self.window_manager.midas_hwnd
+                )
+                self.window_manager.set_window_position_and_size(
+                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                )
             else:
                 print("Midas Gen이 이미 열려 있습니다.")
                 self.window_manager.save_original_position_and_size(
@@ -537,12 +556,14 @@ class App(SingletonApp, ctk.CTk):
             self.run_json_file("calculate.json")
 
             # Steel code check
+            self.clipboard_clear()
             self.run_json_file("steel_code_check.json")
             if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
                 print("Steel code check failed. Restarting from the beginning.")
                 continue
 
             # Cold formed steel code check
+            self.clipboard_clear()
             self.run_json_file("cold_formed_steel_code_check.json")
             if not self.save_clipboard_to_file(
                 "solar_cold_formed_steel_code_check.txt"
@@ -553,6 +574,7 @@ class App(SingletonApp, ctk.CTk):
                 continue
 
             # Table
+            self.clipboard_clear()
             self.run_json_file("table.json")
             if not self.save_clipboard_to_file("solar_table.txt"):
                 print("Table generation failed. Restarting from the beginning.")
@@ -561,38 +583,63 @@ class App(SingletonApp, ctk.CTk):
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")
-            break  # 모든 작업이 성공적으로 완료되면 루프를 종료합니다.
+            break
 
     def run_type_division_building(self):
-        print("타입분할(건물) 작업 시작")
-        building_file = self.file_entries["건물"].get()
-        if not building_file:
-            print("건물 파일이 없습니다.")
-            return
+        while True:
+            print("타입분할(건물) 작업 시작")
+            building_file = self.file_entries["건물"].get()
+            if not building_file:
+                print("건물 파일이 없습니다.")
+                return
 
-        if not self.window_manager.is_midas_gen_open(building_file):
-            self.window_manager.open_midas_gen_file(building_file, 17, 14, 1906, 1028)
-        else:
-            print("Midas Gen이 이미 열려 있습니다.")
-            self.window_manager.save_original_position_and_size(
-                self.window_manager.midas_hwnd
-            )
-            self.window_manager.set_window_position_and_size(
-                self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-            )
+            if not self.window_manager.is_midas_gen_open(building_file):
+                self.window_manager.open_midas_gen_file(
+                    building_file, 17, 14, 1906, 1028
+                )
+                self.window_manager.save_original_position_and_size(
+                    self.window_manager.midas_hwnd
+                )
+                self.window_manager.set_window_position_and_size(
+                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                )
+            else:
+                print("Midas Gen이 이미 열려 있습니다.")
+                self.window_manager.save_original_position_and_size(
+                    self.window_manager.midas_hwnd
+                )
+                self.window_manager.set_window_position_and_size(
+                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                )
 
-        self.run_json_file("display.json")
-        self.run_json_file("calculate.json")
-        self.run_json_file("steel_code_check.json")
-        self.save_clipboard_to_file("building_steel_code_check.txt")
-        self.run_json_file("cold_formed_steel_code_check.json")
-        self.save_clipboard_to_file("building_cold_formed_steel_code_check.txt")
-        self.run_json_file("table.json")
-        self.save_clipboard_to_file("building_table.txt")
+            self.run_json_file("display.json")
+            self.run_json_file("calculate.json")
 
-        self.window_manager.restore_original_position_and_size()
-        self.window_manager.close_midas_gen()
-        print("타입분할(건물) 작업 완료")
+            # Steel code check
+            self.clipboard_clear()
+            self.run_json_file("steel_code_check.json")
+            if not self.save_clipboard_to_file("building_steel_code_check.txt"):
+                print("Steel code check failed. Restarting from the beginning.")
+                continue
+
+            # Cold formed steel code check
+            self.clipboard_clear()
+            self.run_json_file("cold_formed_steel_code_check.json")
+            if not self.save_clipboard_to_file("building_cold_formed_steel_code_check.txt"):
+                print("Cold formed steel code check failed. Restarting from the beginning.")
+                continue
+
+            # Table
+            self.clipboard_clear()
+            self.run_json_file("table.json")
+            if not self.save_clipboard_to_file("building_table.txt"):
+                print("Table generation failed. Restarting from the beginning.")
+                continue
+
+            self.window_manager.restore_original_position_and_size()
+            self.window_manager.close_midas_gen()
+            print("타입분할(건물) 작업 완료")
+            break
 
     def run_building_solar_integration(self):
         print("건물 / 태양광 통합 작업 시작")
