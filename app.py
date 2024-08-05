@@ -19,15 +19,9 @@ class MidasWindowManager:
     def is_midas_gen_open(self, file_path):
         def callback(hwnd, hwnds):
             if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                try:
-                    process = psutil.Process(pid)
-                    if any(
-                        file_path.lower() in cmd.lower() for cmd in process.cmdline()
-                    ):
-                        hwnds.append(hwnd)
-                except psutil.NoSuchProcess:
-                    pass
+                title = win32gui.GetWindowText(hwnd)
+                if "Midas Gen" in title and file_path in title:
+                    hwnds.append(hwnd)
             return True
 
         hwnds = []
