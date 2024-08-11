@@ -582,7 +582,11 @@ class App(SingletonApp, ctk.CTk):
 
         for item in ordered_items:
             if item in self.checkbox_functions:
-                self.checkbox_functions[item]()
+                try:
+                    self.checkbox_functions[item]()
+                except Exception as e:
+                    print(f"Error in {item}: {str(e)}")
+                    # 오류 로그를 파일에 저장하거나 사용자에게 표시할 수 있습니다.
 
         # 모든 gui 복원
         self.deiconify()
@@ -607,6 +611,8 @@ class App(SingletonApp, ctk.CTk):
             )
             return False
 
+        file_path = os.path.join(os.path.dirname(__file__), "temp", file_path)
+
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -624,6 +630,13 @@ class App(SingletonApp, ctk.CTk):
     def clipboard_clear(self):
         pyperclip.copy("")
 
+    def get_temp_file_path(self, file_name):
+        current_directory = os.path.dirname(__file__)
+        temp_directory = os.path.join(current_directory, "temp")
+        if not os.path.exists(temp_directory):
+            os.makedirs(temp_directory)
+        return os.path.join(temp_directory, file_name)
+
     def run_type_division_solar(self):
         while True:
             print("타입분할(태양광) 작업 시작")
@@ -633,7 +646,9 @@ class App(SingletonApp, ctk.CTk):
                 return
 
             if not self.window_manager.is_midas_gen_open(solar_file):
-                self.window_manager.open_midas_gen_file(solar_file, 17, 14, 1906, 1028)
+                self.window_manager.open_midas_gen_file(
+                    solar_file, 17, 14, 1906, 1028
+                )  # 여기를 수정
                 self.window_manager.save_original_position_and_size(
                     self.window_manager.midas_hwnd
                 )
@@ -648,39 +663,122 @@ class App(SingletonApp, ctk.CTk):
                 self.window_manager.set_window_position_and_size(
                     self.window_manager.midas_hwnd, 17, 14, 1906, 1028
                 )
+            # self.run_json_file("display.json")
+            # self.run_json_file("calculate.json")
 
-            self.run_json_file("display.json")
-            self.run_json_file("calculate.json")
+            # # Steel code check
+            # self.clipboard_clear()
+            # self.run_json_file("steel_code_check.json")
+            # if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
+            #     print("Steel code check failed. Restarting from the beginning.")
+            #     continue
 
-            # Steel code check
-            self.clipboard_clear()
-            self.run_json_file("steel_code_check.json")
-            if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
+            # # Cold formed steel code check
+            # self.clipboard_clear()
+            # self.run_json_file("cold_formed_steel_code_check.json")
+            # if not self.save_clipboard_to_file(
+            #     "solar_cold_formed_steel_code_check.txt"
+            # ):
+            #     print(
+            #         "Cold formed steel code check failed. Restarting from the beginning."
+            #     )
+            #     continue
+
+            # # Table
+            # self.clipboard_clear()
+            # self.run_json_file("table.json")
+            # if not self.save_clipboard_to_file("solar_table.txt"):
+            #     print("Table generation failed. Restarting from the beginning.")
+            #     continue
+
+            # self.window_manager.restore_original_position_and_size()
+            # self.window_manager.close_midas_gen()
+            # print("타입분할(태양광) 작업 완료")
+
+            self.run_json_file("11111.json")
+            if not os.path.exists(self.get_temp_file_path("1.jpg")):
                 print("Steel code check failed. Restarting from the beginning.")
                 continue
 
-            # Cold formed steel code check
-            self.clipboard_clear()
-            self.run_json_file("cold_formed_steel_code_check.json")
-            if not self.save_clipboard_to_file(
-                "solar_cold_formed_steel_code_check.txt"
-            ):
-                print(
-                    "Cold formed steel code check failed. Restarting from the beginning."
-                )
+            self.run_json_file("22222.json")
+            if not os.path.exists(self.get_temp_file_path("2.jpg")):
+                print("Steel code check failed. Restarting from the beginning.")
                 continue
 
-            # Table
-            self.clipboard_clear()
-            self.run_json_file("table.json")
-            if not self.save_clipboard_to_file("solar_table.txt"):
-                print("Table generation failed. Restarting from the beginning.")
+            self.run_json_file("33333.json")
+            if not os.path.exists(self.get_temp_file_path("3.jpg")):
+                print("Steel code check failed. Restarting from the beginning.")
                 continue
 
-            self.window_manager.restore_original_position_and_size()
-            self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")
             break
+
+        # hangul_file_path = os.path.join(os.path.dirname(__file__), "StructFlow-Automator-Private", "hwp_sample", "1. 표지(건물위, 슬래브위).hwp")
+        # import datetime
+
+        # now = datetime.datetime.now()
+
+        # with open(self.get_temp_file_path("년월.txt"), "w") as f:
+        #     f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
+
+        # import re
+
+        # # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
+        # # path = 태양광에 있는 값
+        # path = self.file_entries["태양광"].get()
+
+        # 주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        # 주소상세_pattern = (
+        #     r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
+        # )
+        # 지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        # 태양광위치_pattern = r"\((.*?)\)-完"
+
+        # 주소 = re.search(주소_pattern, path).group(1)
+        # 주소상세 = re.search(주소상세_pattern, path).group(1)
+        # 지역 = re.search(지역_pattern, path).group(
+        #     1
+        # )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
+        # 태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
+        # 태양광위치 = re.search(태양광위치_pattern, path).group(1)
+
+        # with open(self.get_temp_file_path("주소.txt"), "w") as f:
+        #     f.write(주소)
+
+        # with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
+        #     f.write(주소상세)
+
+        # with open(self.get_temp_file_path("지역.txt"), "w") as f:
+        #     f.write(지역)
+
+        # with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
+        #     f.write(태양광명칭)
+
+        # with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
+        #     f.write(태양광위치)
+
+        # replace_files = [
+        #     ("{{위치도}}", "위치도.png"),
+        #     ("{{주소}}", "주소.txt"),
+        #     ("{{주소상세}}", "주소상세.txt"),
+        #     ("{{지역}}", "지역.txt"),
+        #     ("{{태양광명칭}}", "태양광명칭.txt"),
+        #     ("{{년월}}", "년월.txt"),
+        #     ("{{태양광위치}}", "태양광위치.txt"),
+        #     ("{{3.1모듈배치}}", "100.emf"),
+        #     ("{{3.2모듈배치}}", "101.emf"),
+        # ]
+
+        # # 실행할 명령어 구성
+        # command = f'python hangle.py "{hangul_file_path}"'
+        # for placeholder, file_name in replace_files:
+        #     file_path = self.get_temp_file_path(file_name)
+        #     if os.path.exists(file_path):
+        #         print(f"File exists: {file_path}")
+        #     else:
+        #         print(f"File does not exist: {file_path}")
+        #     command += f' "{placeholder}" "{file_path}"'
+        # os.system(command)
 
     def run_type_division_building(self):
         while True:
@@ -741,6 +839,74 @@ class App(SingletonApp, ctk.CTk):
             self.window_manager.close_midas_gen()
             print("타입분할(건물) 작업 완료")
             break
+
+        # hangul_file_path = r"D:\git\StructFlow-Automator\StructFlow-Automator-Private\hwp_sample\1. 표지(건물위, 슬래브위).hwp"
+        hangul_file_path = os.path.join(os.path.dirname(__file__), "StructFlow-Automator-Private", "hwp_sample", "1. 표지(건물위, 슬래브위).hwp")
+        import datetime
+
+        now = datetime.datetime.now()
+
+        with open(self.get_temp_file_path("년월.txt"), "w") as f:
+            f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
+
+        import re
+
+        # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
+        # path = 태양광에 있는 값
+        path = self.file_entries["태양광"].get()
+
+        주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        주소상세_pattern = (
+            r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
+        )
+        지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        태양광위치_pattern = r"\((.*?)\)-完"
+
+        주소 = re.search(주소_pattern, path).group(1)
+        주소상세 = re.search(주소상세_pattern, path).group(1)
+        지역 = re.search(지역_pattern, path).group(
+            1
+        )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
+        태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
+        태양광위치 = re.search(태양광위치_pattern, path).group(1)
+
+        with open(self.get_temp_file_path("주소.txt"), "w") as f:
+            f.write(주소)
+
+        with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
+            f.write(주소상세)
+
+        with open(self.get_temp_file_path("지역.txt"), "w") as f:
+            f.write(지역)
+
+        with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
+            f.write(태양광명칭)
+
+        with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
+            f.write(태양광위치)
+
+        replace_files = [
+            ("{{위치도}}", "위치도.png"),
+            ("{{주소}}", "주소.txt"),
+            ("{{주소상세}}", "주소상세.txt"),
+            ("{{지역}}", "지역.txt"),
+            ("{{태양광명칭}}", "태양광명칭.txt"),
+            ("{{년월}}", "년월.txt"),
+            ("{{태양광위치}}", "태양광위치.txt"),
+            ("{{3.1모듈배치}}", "100.emf"),
+            ("{{3.2모듈배치}}", "101.emf"),
+        ]
+
+        # 실행할 명령어 구성
+        command = f'python hangle.py "{hangul_file_path}"'
+        for placeholder, file_name in replace_files:
+            file_path = self.get_temp_file_path(file_name)
+            if os.path.exists(file_path):
+                print(f"File exists: {file_path}")
+            else:
+                print(f"File does not exist: {file_path}")
+            command += f' "{placeholder}" "{file_path}"'
+        os.system(command)
 
     def run_building_solar_integration(self):
         print("건물 / 태양광 통합 작업 시작")
