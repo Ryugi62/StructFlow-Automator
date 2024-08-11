@@ -105,8 +105,9 @@ class AutoMouseTracker:
             ]:
                 hwnd = self.find_target_hwnd(event)
                 image_present = self.check_image_presence(event, hwnd)
-                if (event["condition"] == "이미지가 있으면 스킵" and image_present) or (
-                    event["condition"] == "이미지가 없으면 스킵" and not image_present
+                print(image_present)
+                if (event["condition"] == "이미지가 있으면 스킵" and not image_present) or (
+                    event["condition"] == "이미지가 없으면 스킵" and image_present
                 ):
                     logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
@@ -383,8 +384,8 @@ class AutoMouseTracker:
             os.makedirs(current_dir)
 
         # 만약 text가 "1"이거나 "2"면 현재 디렉토리 경로 + "1" 또는 "2"로 변경
-        if text in ["1", "2"]:
-            text = os.path.join(current_dir, text)
+        # if text in ["1", "2"]:
+        text = os.path.join(current_dir, text)
 
         for char in text:
             win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
@@ -563,7 +564,7 @@ class AutoMouseTracker:
     def move_cursor(self, current_y):
         current_x, current_y = win32api.GetCursorPos()
         screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-        new_y = current_y + 10 if current_y + 10 < screen_height else current_y - 10
+        new_y = current_y + 15 if current_y + 15 < screen_height else current_y - 15
         win32api.SetCursorPos((current_x, new_y))
         time.sleep(0.1)
 
