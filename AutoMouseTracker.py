@@ -52,7 +52,7 @@ WM_RBUTTONDOWN = 0x0204
 WM_RBUTTONUP = 0x0205
 LOG_FILE = "mouse_tracker.log"
 SAMPLE_TARGETS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
+    "./",
     "StructFlow-Automator-Private",
     "sample_targets",
 )
@@ -284,7 +284,6 @@ class MouseTracker(QWidget):
         self.init_ui()
         self.init_listeners()
         self.init_capture_thread()
-        self.init_emergency_stop()
 
     def init_variables(self):
         self.current = (0, 0)
@@ -453,7 +452,7 @@ class MouseTracker(QWidget):
 
         # 1. 마우스를 화면의 특정 위치로 이동하여 호버 애니메이션을 방지합니다.
         win32api.SetCursorPos((0, 0))
-        time.sleep(0.5)  # 애니메이션이 모두 끝날 때까지 대기
+        time.sleep(0.7)  # 애니메이션이 모두 끝날 때까지 대기
 
         # 2. 이미지를 캡처합니다.
         img = self.capture_thread.capture_window_image(hwnd)
@@ -533,7 +532,9 @@ class MouseTracker(QWidget):
         self.event_list.addItem(list_item)
 
         # 필요에 따라 클릭 이벤트를 실행합니다.
-        self.send_click_event(relative_x, relative_y, hwnd, move_cursor, False, button.name)
+        self.send_click_event(
+            relative_x, relative_y, hwnd, move_cursor, False, button.name
+        )
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -774,7 +775,7 @@ class MouseTracker(QWidget):
             current_x, current_y = win32api.GetCursorPos()
             screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
 
-            move_direction = 10 if current_y == 0 else -10
+            move_direction = 15 if current_y == 0 else -15
             new_y = max(0, min(screen_height - 1, current_y + move_direction))
             win32api.SetCursorPos((current_x, new_y))
             time.sleep(0.1)
@@ -849,14 +850,6 @@ class MouseTracker(QWidget):
                 return True
 
         return False
-
-    def init_emergency_stop(self):
-        def on_move(x, y):
-            if x == 0 and y == 0:  # Top-left corner
-                self.emergency_stop()
-
-        self.mouse_listener = mouse.Listener(on_move=on_move)
-        self.mouse_listener.start()
 
     def emergency_stop(self):
         logging.info("Emergency stop triggered!")
