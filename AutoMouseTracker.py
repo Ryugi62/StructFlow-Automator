@@ -439,6 +439,7 @@ class MouseTracker(QWidget):
     def record_click_event(self, x, y, hwnd, button, move_cursor):
         if hwnd == self.current_program_hwnd or self.is_own_window(hwnd):
             return
+
         window_rect = win32gui.GetWindowRect(hwnd)
         relative_x, relative_y = x - window_rect[0], y - window_rect[1]
         width, height = window_rect[2] - window_rect[0], window_rect[3] - window_rect[1]
@@ -450,7 +451,16 @@ class MouseTracker(QWidget):
         )
         depth = self.get_window_depth(hwnd)
 
+        # 1. 마우스를 화면의 특정 위치로 이동하여 호버 애니메이션을 방지합니다.
+        win32api.SetCursorPos((0, 0))
+        time.sleep(0.5)  # 애니메이션이 모두 끝날 때까지 대기
+
+        # 2. 이미지를 캡처합니다.
         img = self.capture_thread.capture_window_image(hwnd)
+
+        # 3. 마우스를 원래 위치로 되돌립니다.
+        win32api.SetCursorPos((x, y))
+
         if img is not None:
             unique_id = uuid.uuid4().hex
             image_filename = (
@@ -459,7 +469,9 @@ class MouseTracker(QWidget):
             save_dir = SAMPLE_TARGETS_DIR
             os.makedirs(save_dir, exist_ok=True)
             full_path = os.path.join(save_dir, image_filename)
-            cv2.imwrite(full_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
+            # 4. 이미지를 저장하기 전에 색상 변환을 검토합니다.
+            cv2.imwrite(full_path, img)  # 여기서 색상 변환이 필요 없을 수도 있습니다.
 
             sizes = [(30, 30), (50, 50), (70, 70)]
             target_image_paths = []
@@ -476,9 +488,7 @@ class MouseTracker(QWidget):
                     f"{current_program}_{unique_id}_target_{size[0]}x{size[1]}.png"
                 )
                 target_full_path = os.path.join(save_dir, target_image_filename)
-                cv2.imwrite(
-                    target_full_path, cv2.cvtColor(target_region, cv2.COLOR_RGB2BGR)
-                )
+                cv2.imwrite(target_full_path, target_region)
                 target_image_paths.append({"path": target_full_path, "size": size})
 
         window_title = win32gui.GetWindowText(hwnd)
@@ -507,7 +517,7 @@ class MouseTracker(QWidget):
                 "wait_for_image": True,
                 "wait_method": "image",
                 "window_title": window_title,
-                "comparison_threshold": 0.6,  # 기본값으로 설정
+                "comparison_threshold": 0.6,
             },
         }
 
@@ -521,6 +531,9 @@ class MouseTracker(QWidget):
         list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
         list_item.setCheckState(Qt.Unchecked)
         self.event_list.addItem(list_item)
+
+        # 필요에 따라 클릭 이벤트를 실행합니다.
+        self.send_click_event(relative_x, relative_y, hwnd, move_cursor, False, button.name)
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -767,7 +780,7 @@ class MouseTracker(QWidget):
             time.sleep(0.1)
 
         lParam = win32api.MAKELONG(relative_x, relative_y)
-        
+
         if win32gui.GetClassName(hwnd) == "#32768":
             # 윈도우의 절대 좌표 얻기
             left, top, _, _ = win32gui.GetWindowRect(hwnd)
