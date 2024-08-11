@@ -598,6 +598,9 @@ class App(SingletonApp, ctk.CTk):
         else:
             print(f"Warning: JSON file {json_file} not found.")
 
+    def clear_clipboard(self):
+        pyperclip.copy("")
+
     def save_clipboard_to_file(self, file_path):
         try:
             content = pyperclip.paste()
@@ -639,81 +642,114 @@ class App(SingletonApp, ctk.CTk):
 
     def run_type_division_solar(self):
         while True:
-            print("타입분할(태양광) 작업 시작")
-            solar_file = self.file_entries["태양광"].get()
-            if not solar_file:
-                print("태양광 파일이 없습니다.")
-                return
+            try:
+                print("타입분할(태양광) 작업 시작")
+                solar_file = self.file_entries["태양광"].get()
+                if not solar_file:
+                    print("태양광 파일이 없습니다.")
+                    return
 
-            if not self.window_manager.is_midas_gen_open(solar_file):
-                self.window_manager.open_midas_gen_file(
-                    solar_file, 17, 14, 1906, 1028
-                )  # 여기를 수정
-                self.window_manager.save_original_position_and_size(
-                    self.window_manager.midas_hwnd
-                )
-                self.window_manager.set_window_position_and_size(
-                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-                )
-            else:
-                print("Midas Gen이 이미 열려 있습니다.")
-                self.window_manager.save_original_position_and_size(
-                    self.window_manager.midas_hwnd
-                )
-                self.window_manager.set_window_position_and_size(
-                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-                )
-            self.run_json_file("display.json")
-            # self.run_json_file("calculate.json")
+                if not self.window_manager.is_midas_gen_open(solar_file):
+                    self.window_manager.open_midas_gen_file(
+                        solar_file, 17, 14, 1906, 1028
+                    )  # 여기를 수정
+                    self.window_manager.save_original_position_and_size(
+                        self.window_manager.midas_hwnd
+                    )
+                    self.window_manager.set_window_position_and_size(
+                        self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                    )
+                else:
+                    print("Midas Gen이 이미 열려 있습니다.")
+                    self.window_manager.save_original_position_and_size(
+                        self.window_manager.midas_hwnd
+                    )
+                    self.window_manager.set_window_position_and_size(
+                        self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                    )
+                self.run_json_file("display.json")
+                self.run_json_file("calculate.json")
 
-            # # Steel code check
-            # self.clipboard_clear()
-            # self.run_json_file("steel_code_check.json")
-            # if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
-            #     print("Steel code check failed. Restarting from the beginning.")
-            #     continue
+                while True:
+                    try:
+                        # open_widget_steel_code_check.json
+                        self.run_json_file("open_widget_steel_code_check.json")
 
-            # # Cold formed steel code check
-            # self.clipboard_clear()
-            # self.run_json_file("cold_formed_steel_code_check.json")
-            # if not self.save_clipboard_to_file(
-            #     "solar_cold_formed_steel_code_check.txt"
-            # ):
-            #     print(
-            #         "Cold formed steel code check failed. Restarting from the beginning."
-            #     )
-            #     continue
+                        # copy_txt_steel_code_check.json
+                        self.clear_clipboard()
+                        self.run_json_file("copy_txt_steel_code_check.json")
+                        if not self.save_clipboard_to_file(
+                            "solar_steel_code_check.txt"
+                        ):
+                            print(
+                                "Steel code check failed. Restarting from the beginning."
+                            )
+                            continue
 
-            # # Table
-            # self.clipboard_clear()
-            # self.run_json_file("table.json")
-            # if not self.save_clipboard_to_file("solar_table.txt"):
-            #     print("Table generation failed. Restarting from the beginning.")
-            #     continue
+                        # create_img_steel_code_check.json
+                        self.run_json_file("create_img_steel_code_check.json")
+                        if not os.path.exists(self.get_temp_file_path("100.emf")):
+                            print(
+                                "Steel code check failed. Restarting from the beginning."
+                            )
+                            continue
+                    finally:
+                        # close_steel_code_check.json
+                        self.run_json_file("close_steel_code_check.json")
 
-            # self.window_manager.restore_original_position_and_size()
-            # self.window_manager.close_midas_gen()
-            # print("타입분할(태양광) 작업 완료")
+                    break
 
-            # self.run_json_file("11111.json")
-            # if not os.path.exists(self.get_temp_file_path("1.jpg")):
-            #     print("Steel code check failed. Restarting from the beginning.")
-            #     continue
+                # # Steel code check
+                # self.clipboard_clear()
+                # self.run_json_file("steel_code_check.json")
+                # if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
+                #     print("Steel code check failed. Restarting from the beginning.")
+                #     continue
 
-            # self.run_json_file("22222.json")
-            # if not os.path.exists(self.get_temp_file_path("2.jpg")):
-            #     print("Steel code check failed. Restarting from the beginning.")
-            #     continue
+                # # Cold formed steel code check
+                # self.clipboard_clear()
+                # self.run_json_file("cold_formed_steel_code_check.json")
+                # if not self.save_clipboard_to_file(
+                #     "solar_cold_formed_steel_code_check.txt"
+                # ):
+                #     print(
+                #         "Cold formed steel code check failed. Restarting from the beginning."
+                #     )
+                #     continue
 
-            # self.run_json_file("33333.json")
-            # if not os.path.exists(self.get_temp_file_path("3.jpg")):
-            #     print("Steel code check failed. Restarting from the beginning.")
-            #     continue
+                # Table
+                self.clipboard_clear()
+                self.run_json_file("table.json")
+                if not self.save_clipboard_to_file("solar_table.txt"):
+                    print("Table generation failed. Restarting from the beginning.")
+                    continue
 
-            print("타입분할(태양광) 작업 완료")
-            break
+                # self.run_json_file("11111.json")
+                # if not os.path.exists(self.get_temp_file_path("1.jpg")):
+                #     print("Steel code check failed. Restarting from the beginning.")
+                #     continue
 
-        hangul_file_path = os.path.join(os.path.dirname(__file__), "StructFlow-Automator-Private", "hwp_sample", "1. 표지(건물위, 슬래브위).hwp")
+                # self.run_json_file("22222.json")
+                # if not os.path.exists(self.get_temp_file_path("2.jpg")):
+                #     print("Steel code check failed. Restarting from the beginning.")
+                #     continue
+
+                # self.run_json_file("33333.json")
+                # if not os.path.exists(self.get_temp_file_path("3.jpg")):
+                #     print("Steel code check failed. Restarting from the beginning.")
+                #     continue
+            finally:
+                self.window_manager.restore_original_position_and_size()
+                self.window_manager.close_midas_gen()
+                print("타입분할(태양광) 작업 완료")
+                break
+
+        hangul_file_path = os.path.join(
+            os.path.dirname(__file__),
+            "StructFlow-Automator-Private",
+            "hwp_sample",
+            "1. 표지(건물위, 슬래브위).hwp",
+        )
         import datetime
 
         now = datetime.datetime.now()
@@ -783,65 +819,70 @@ class App(SingletonApp, ctk.CTk):
     def run_type_division_building(self):
         print("타입분할(건물) 작업 시작")
         # while True:
-            # building_file = self.file_entries["건물"].get()
-            # if not building_file:
-            #     print("건물 파일이 없습니다.")
-            #     return
+        # building_file = self.file_entries["건물"].get()
+        # if not building_file:
+        #     print("건물 파일이 없습니다.")
+        #     return
 
-            # if not self.window_manager.is_midas_gen_open(building_file):
-            #     self.window_manager.open_midas_gen_file(
-            #         building_file, 17, 14, 1906, 1028
-            #     )
-            #     self.window_manager.save_original_position_and_size(
-            #         self.window_manager.midas_hwnd
-            #     )
-            #     self.window_manager.set_window_position_and_size(
-            #         self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-            #     )
-            # else:
-            #     print("Midas Gen이 이미 열려 있습니다.")
-            #     self.window_manager.save_original_position_and_size(
-            #         self.window_manager.midas_hwnd
-            #     )
-            #     self.window_manager.set_window_position_and_size(
-            #         self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-            #     )
+        # if not self.window_manager.is_midas_gen_open(building_file):
+        #     self.window_manager.open_midas_gen_file(
+        #         building_file, 17, 14, 1906, 1028
+        #     )
+        #     self.window_manager.save_original_position_and_size(
+        #         self.window_manager.midas_hwnd
+        #     )
+        #     self.window_manager.set_window_position_and_size(
+        #         self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+        #     )
+        # else:
+        #     print("Midas Gen이 이미 열려 있습니다.")
+        #     self.window_manager.save_original_position_and_size(
+        #         self.window_manager.midas_hwnd
+        #     )
+        #     self.window_manager.set_window_position_and_size(
+        #         self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+        #     )
 
-            # self.run_json_file("display.json")
-            # self.run_json_file("calculate.json")
+        # self.run_json_file("display.json")
+        # self.run_json_file("calculate.json")
 
-            # # Steel code check
-            # self.clipboard_clear()
-            # self.run_json_file("steel_code_check.json")
-            # if not self.save_clipboard_to_file("building_steel_code_check.txt"):
-            #     print("Steel code check failed. Restarting from the beginning.")
-            #     continue
+        # # Steel code check
+        # self.clipboard_clear()
+        # self.run_json_file("steel_code_check.json")
+        # if not self.save_clipboard_to_file("building_steel_code_check.txt"):
+        #     print("Steel code check failed. Restarting from the beginning.")
+        #     continue
 
-            # # Cold formed steel code check
-            # self.clipboard_clear()
-            # self.run_json_file("cold_formed_steel_code_check.json")
-            # if not self.save_clipboard_to_file(
-            #     "building_cold_formed_steel_code_check.txt"
-            # ):
-            #     print(
-            #         "Cold formed steel code check failed. Restarting from the beginning."
-            #     )
-            #     continue
+        # # Cold formed steel code check
+        # self.clipboard_clear()
+        # self.run_json_file("cold_formed_steel_code_check.json")
+        # if not self.save_clipboard_to_file(
+        #     "building_cold_formed_steel_code_check.txt"
+        # ):
+        #     print(
+        #         "Cold formed steel code check failed. Restarting from the beginning."
+        #     )
+        #     continue
 
-            # # Table
-            # self.clipboard_clear()
-            # self.run_json_file("table.json")
-            # if not self.save_clipboard_to_file("building_table.txt"):
-            #     print("Table generation failed. Restarting from the beginning.")
-            #     continue
+        # # Table
+        # self.clipboard_clear()
+        # self.run_json_file("table.json")
+        # if not self.save_clipboard_to_file("building_table.txt"):
+        #     print("Table generation failed. Restarting from the beginning.")
+        #     continue
 
-            # self.window_manager.restore_original_position_and_size()
-            # self.window_manager.close_midas_gen()
-            # print("타입분할(건물) 작업 완료")
-            # break
+        # self.window_manager.restore_original_position_and_size()
+        # self.window_manager.close_midas_gen()
+        # print("타입분할(건물) 작업 완료")
+        # break
 
         # hangul_file_path = r"D:\git\StructFlow-Automator\StructFlow-Automator-Private\hwp_sample\1. 표지(건물위, 슬래브위).hwp"
-        hangul_file_path = os.path.join(os.path.dirname(__file__), "StructFlow-Automator-Private", "hwp_sample", "1. 표지(건물위, 슬래브위).hwp")
+        hangul_file_path = os.path.join(
+            os.path.dirname(__file__),
+            "StructFlow-Automator-Private",
+            "hwp_sample",
+            "1. 표지(건물위, 슬래브위).hwp",
+        )
         import datetime
 
         now = datetime.datetime.now()
