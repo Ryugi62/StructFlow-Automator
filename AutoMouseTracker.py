@@ -1,5 +1,3 @@
-# AutoMouseTracker.py
-
 import sys
 import os
 import time
@@ -289,6 +287,7 @@ class MouseTracker(QWidget):
         self.current = (0, 0)
         self.click_events = []
         self.recording = False
+        self.paused = False  # 일시 중지 상태를 관리하는 플래그 추가
         self.speed_factor = 1.0
         self.current_program_hwnd = win32gui.GetForegroundWindow()
         self.capture_thread = None
@@ -333,6 +332,10 @@ class MouseTracker(QWidget):
         self.record_button = self.create_button(
             "Start Recording", "icons/record.png", self.toggle_recording
         )
+        self.pause_button = self.create_button(  # 일시 중지 버튼 추가
+            "Pause Recording", "icons/pause.png", self.toggle_pause
+        )
+        self.pause_button.setEnabled(False)  # 일시 중지 버튼을 초기에는 비활성화
         self.save_button = self.create_button(
             "Save Script", "icons/save.png", self.save_script
         )
@@ -353,10 +356,11 @@ class MouseTracker(QWidget):
         )
 
         self.layout.addWidget(self.record_button, 5, 0)
-        self.layout.addWidget(self.save_button, 5, 1)
-        self.layout.addWidget(self.load_button, 6, 0)
-        self.layout.addWidget(self.play_button, 6, 1)
-        self.layout.addWidget(self.add_custom_image_button, 7, 0, 1, 2)
+        self.layout.addWidget(self.pause_button, 5, 1)
+        self.layout.addWidget(self.save_button, 6, 0)
+        self.layout.addWidget(self.load_button, 6, 1)
+        self.layout.addWidget(self.play_button, 7, 0)
+        self.layout.addWidget(self.add_custom_image_button, 7, 1)
         self.layout.addWidget(self.settings_button, 8, 0, 1, 2)
         self.layout.addWidget(self.stop_button, 9, 0, 1, 2)
 
@@ -420,7 +424,7 @@ class MouseTracker(QWidget):
                 hwnd = win32gui.WindowFromPoint((x, y))
                 if hwnd:
                     self.print_window_hierarchy(hwnd)
-                if pressed and self.recording and not self.is_own_window(hwnd):
+                if pressed and self.recording and not self.paused and not self.is_own_window(hwnd):
                     self.record_click_event(x, y, hwnd, button, move_cursor=False)
             except Exception as e:
                 logging.error(f"Error in on_click: {e}")
@@ -451,14 +455,18 @@ class MouseTracker(QWidget):
         depth = self.get_window_depth(hwnd)
 
         # 1. 마우스를 화면의 특정 위치로 이동하여 호버 애니메이션을 방지합니다.
-        win32api.SetCursorPos((0, 0))
-        time.sleep(0.7)  # 애니메이션이 모두 끝날 때까지 대기
+        # 모니터 최대 사이즈로 저장
+        # screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+        # screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        
+        # win32api.SetCursorPos((screen_width - 1, screen_height - 1))
+        # time.sleep(0.7)  # 애니메이션이 모두 끝날 때까지 대기
 
         # 2. 이미지를 캡처합니다.
         img = self.capture_thread.capture_window_image(hwnd)
 
         # 3. 마우스를 원래 위치로 되돌립니다.
-        win32api.SetCursorPos((x, y))
+        # win32api.SetCursorPos((x, y))
 
         if img is not None:
             unique_id = uuid.uuid4().hex
@@ -531,10 +539,12 @@ class MouseTracker(QWidget):
         list_item.setCheckState(Qt.Unchecked)
         self.event_list.addItem(list_item)
 
-        # 필요에 따라 클릭 이벤트를 실행합니다.
-        self.send_click_event(
-            relative_x, relative_y, hwnd, move_cursor, False, button.name
-        )
+        # time.sleep(0.5)  # 클릭 후 잠시 대기
+
+        # # 필요에 따라 클릭 이벤트를 실행합니다.
+        # self.send_click_event(
+        #     relative_x, relative_y, hwnd, move_cursor, False, button.name
+        # )
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -611,17 +621,29 @@ class MouseTracker(QWidget):
         )
 
     def toggle_recording(self):
-        self.recording = not self.recording
-        self.record_button.setText(
-            "Stop Recording" if self.recording else "Start Recording"
-        )
-        self.status_bar.showMessage(
-            "Recording started" if self.recording else "Recording stopped"
-        )
-        if self.recording:
+        if not self.recording:
+            self.recording = True
+            self.record_button.setText("Stop Recording")
+            self.pause_button.setEnabled(True)  # 녹화가 시작되면 일시 중지 버튼 활성화
+            self.status_bar.showMessage("Recording started")
             self.start_time = time.time()
             self.click_events = []
             self.event_list.clear()
+        else:
+            self.recording = False
+            self.record_button.setText("Start Recording")
+            self.pause_button.setEnabled(False)  # 녹화가 중지되면 일시 중지 버튼 비활성화
+            self.status_bar.showMessage("Recording stopped")
+
+    def toggle_pause(self):
+        if self.recording and not self.paused:
+            self.paused = True
+            self.pause_button.setText("Resume Recording")
+            self.status_bar.showMessage("Recording paused")
+        elif self.recording and self.paused:
+            self.paused = False
+            self.pause_button.setText("Pause Recording")
+            self.status_bar.showMessage("Recording resumed")
 
     def save_script(self):
         filename, _ = QFileDialog.getSaveFileName(
