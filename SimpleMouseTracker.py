@@ -106,9 +106,9 @@ class AutoMouseTracker:
                 hwnd = self.find_target_hwnd(event)
                 image_present = self.check_image_presence(event, hwnd)
                 print(image_present)
-                if (event["condition"] == "이미지가 있으면 스킵" and not image_present) or (
-                    event["condition"] == "이미지가 없으면 스킵" and image_present
-                ):
+                if (
+                    event["condition"] == "이미지가 있으면 스킵" and not image_present
+                ) or (event["condition"] == "이미지가 없으면 스킵" and image_present):
                     logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
                     process_event(index + 1)
@@ -383,8 +383,6 @@ class AutoMouseTracker:
         if not os.path.exists(current_dir):
             os.makedirs(current_dir)
 
-        # 만약 text가 "1"이거나 "2"면 현재 디렉토리 경로 + "1" 또는 "2"로 변경
-        # if text in ["1", "2"]:
         text = os.path.join(current_dir, text)
 
         for char in text:
@@ -501,7 +499,11 @@ class AutoMouseTracker:
         try:
             process = psutil.Process(pid)
             if program_path:
-                return process.exe().lower() == program_path.lower()
+                return (
+                    process.exe().lower().split("/")[-1]
+                    == program_path.lower().split("/")[-1]
+                )
+
             return process.name().lower() == program_name.lower()
         except psutil.NoSuchProcess:
             return False
