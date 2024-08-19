@@ -339,6 +339,14 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         ordered_items = self.listbox.get(0, "end")
         print("순서:", ordered_items)
 
+        # temp 폴더 없으면 생성
+        if not os.path.exists("temp"):
+            os.makedirs("temp")
+
+        # temp 폴더안에 모든 파일 삭제
+        for file in os.listdir("temp"):
+            os.remove(os.path.join("temp", file))
+            
         # SimpleMouseTracker 실행
         self.parent.run_simple_mouse_tracker(ordered_items)
 
@@ -652,7 +660,7 @@ class App(SingletonApp, ctk.CTk):
                 if not self.window_manager.is_midas_gen_open(solar_file):
                     self.window_manager.open_midas_gen_file(
                         solar_file, 17, 14, 1906, 1028
-                    )  # 여기를 수정
+                    )
                     self.window_manager.save_original_position_and_size(
                         self.window_manager.midas_hwnd
                     )
@@ -667,7 +675,11 @@ class App(SingletonApp, ctk.CTk):
                     self.window_manager.set_window_position_and_size(
                         self.window_manager.midas_hwnd, 17, 14, 1906, 1028
                     )
+
+                # display.json
                 self.run_json_file("display.json")
+
+                # calculate.json
                 self.run_json_file("calculate.json")
 
                 while True:
@@ -699,45 +711,60 @@ class App(SingletonApp, ctk.CTk):
 
                     break
 
-                # # Steel code check
-                # self.clipboard_clear()
-                # self.run_json_file("steel_code_check.json")
-                # if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
-                #     print("Steel code check failed. Restarting from the beginning.")
-                #     continue
+                while True:
+                    try:
+                        # open_widget_cold_formed_steel_code_check.json
+                        self.run_json_file(
+                            "open_widget_cold_formed_steel_code_check.json"
+                        )
 
-                # # Cold formed steel code check
-                # self.clipboard_clear()
-                # self.run_json_file("cold_formed_steel_code_check.json")
-                # if not self.save_clipboard_to_file(
-                #     "solar_cold_formed_steel_code_check.txt"
-                # ):
-                #     print(
-                #         "Cold formed steel code check failed. Restarting from the beginning."
-                #     )
-                #     continue
+                        # copy_txt_cold_formed_steel_code_check.json
+                        self.clear_clipboard()
+                        self.run_json_file("copy_txt_cold_formed_steel_code_check.json")
+                        if not self.save_clipboard_to_file(
+                            "solar_cold_formed_steel_code_check.txt"
+                        ):
+                            print(
+                                "Cold formed steel code check failed. Restarting from the beginning."
+                            )
+                            continue
 
-                # Table
+                        # create_img_cold_formed_steel_code_check.json
+                        self.run_json_file(
+                            "create_img_cold_formed_steel_code_check.json"
+                        )
+                        if not os.path.exists(self.get_temp_file_path("201.emf")):
+                            print(
+                                "Cold formed steel code check failed. Restarting from the beginning."
+                            )
+                            continue
+                    finally:
+                        # close_cold_formed_steel_code_check.json
+                        self.run_json_file("close_cold_formed_steel_code_check.json")
+
+                    break
+
+                # table.json
                 self.clipboard_clear()
                 self.run_json_file("table.json")
                 if not self.save_clipboard_to_file("solar_table.txt"):
                     print("Table generation failed. Restarting from the beginning.")
                     continue
 
-                # self.run_json_file("11111.json")
-                # if not os.path.exists(self.get_temp_file_path("1.jpg")):
-                #     print("Steel code check failed. Restarting from the beginning.")
-                #     continue
+                self.clipboard_clear()
+                self.run_json_file("unactive_dummy.json")
+                if not self.get_temp_file_path("unactive_dummy.jpg"):
+                    print("Unactive dummy generation failed. Restarting from the beginning.")
+                    continue
 
-                # self.run_json_file("22222.json")
-                # if not os.path.exists(self.get_temp_file_path("2.jpg")):
-                #     print("Steel code check failed. Restarting from the beginning.")
-                #     continue
+                # Boundaries_type.json
+                self.run_json_file("boundaries_type.json")
+                if not self.get_temp_file_path("boundaries_type.jpg"):
+                    print(
+                        "Boundaries type generation failed. Restarting from the beginning."
+                    )
+                    continue
 
-                # self.run_json_file("33333.json")
-                # if not os.path.exists(self.get_temp_file_path("3.jpg")):
-                #     print("Steel code check failed. Restarting from the beginning.")
-                #     continue
             finally:
                 self.window_manager.restore_original_position_and_size()
                 self.window_manager.close_midas_gen()
@@ -794,7 +821,7 @@ class App(SingletonApp, ctk.CTk):
             f.write(태양광위치)
 
         replace_files = [
-            ("{{위치도}}", "위치도.png"),
+            # ("{{위치도}}", "위치도.png"),
             ("{{주소}}", "주소.txt"),
             ("{{주소상세}}", "주소상세.txt"),
             ("{{지역}}", "지역.txt"),

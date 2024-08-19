@@ -384,6 +384,9 @@ class AutoMouseTracker:
             os.makedirs(current_dir)
 
         text = os.path.join(current_dir, text)
+        
+        # log로 text 출력
+        logging.info(f"Keyboard input: {text}")
 
         for char in text:
             win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
