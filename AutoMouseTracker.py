@@ -67,6 +67,29 @@ def configure_logging():
 configure_logging()
 
 
+def check_image_match(template_path, source_image, threshold=0.6):
+    """
+    템플릿 매칭을 이용하여 이미지가 일치하는지 확인합니다.
+
+    :param template_path: 템플릿 이미지 파일 경로
+    :param source_image: 소스 이미지 (np.ndarray)
+    :param threshold: 일치율 임계값 (0.0 ~ 1.0)
+    :return: 매칭 결과가 임계값 이상일 경우 True, 그렇지 않으면 False
+    """
+    try:
+        template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+        if template is None:
+            logging.error(f"Template image not found at: {template_path}")
+            return False
+
+        result = cv2.matchTemplate(source_image, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+        return max_val >= threshold
+    except Exception as e:
+        logging.error(f"Error in check_image_match: {e}")
+        return False
+
+
 class ImageCaptureThread(QThread):
     image_captured = pyqtSignal(np.ndarray)
     condition_met = pyqtSignal()
@@ -454,19 +477,7 @@ class MouseTracker(QWidget):
         )
         depth = self.get_window_depth(hwnd)
 
-        # 1. 마우스를 화면의 특정 위치로 이동하여 호버 애니메이션을 방지합니다.
-        # 모니터 최대 사이즈로 저장
-        # screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
-        # screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-        
-        # win32api.SetCursorPos((screen_width - 1, screen_height - 1))
-        # time.sleep(0.7)  # 애니메이션이 모두 끝날 때까지 대기
-
-        # 2. 이미지를 캡처합니다.
         img = self.capture_thread.capture_window_image(hwnd)
-
-        # 3. 마우스를 원래 위치로 되돌립니다.
-        # win32api.SetCursorPos((x, y))
 
         if img is not None:
             unique_id = uuid.uuid4().hex
@@ -477,8 +488,7 @@ class MouseTracker(QWidget):
             os.makedirs(save_dir, exist_ok=True)
             full_path = os.path.join(save_dir, image_filename)
 
-            # 4. 이미지를 저장하기 전에 색상 변환을 검토합니다.
-            cv2.imwrite(full_path, img)  # 여기서 색상 변환이 필요 없을 수도 있습니다.
+            cv2.imwrite(full_path, img)
 
             sizes = [(30, 30), (50, 50), (70, 70)]
             target_image_paths = []
@@ -538,13 +548,6 @@ class MouseTracker(QWidget):
         list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
         list_item.setCheckState(Qt.Unchecked)
         self.event_list.addItem(list_item)
-
-        # time.sleep(0.5)  # 클릭 후 잠시 대기
-
-        # # 필요에 따라 클릭 이벤트를 실행합니다.
-        # self.send_click_event(
-        #     relative_x, relative_y, hwnd, move_cursor, False, button.name
-        # )
 
     def get_window_depth(self, hwnd):
         depth = 0
@@ -739,14 +742,14 @@ class MouseTracker(QWidget):
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
-        if event.get("condition") == "Image Present":
-            if not self.check_image_presence(event, hwnd):
-                logging.info("Condition 'Image Present' not met, skipping event.")
-                return False
-        elif event.get("condition") == "Image Not Present":
-            if self.check_image_presence(event, hwnd):
-                logging.info("Condition 'Image Not Present' not met, skipping event.")
-                return False
+        # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
+        for target_image_info in event["image"].get("target_paths", []):
+            if check_image_match(target_image_info["path"], self.capture_thread.capture_window_image(hwnd), event.get("similarity_threshold", 0.6)):
+                logging.info("Image match found.")
+                break
+        else:
+            logging.info("No image match found.")
+            return False
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
@@ -762,6 +765,9 @@ class MouseTracker(QWidget):
                             img, target_image, cv2.TM_CCOEFF_NORMED
                         )
                         _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+                        print(f"Max value: {max_val}, location: {max_loc}")
+                        
                         if max_val >= event.get("similarity_threshold", 0.6):
                             event["relative_x"], event["relative_y"] = max_loc
                             break
@@ -805,12 +811,9 @@ class MouseTracker(QWidget):
         lParam = win32api.MAKELONG(relative_x, relative_y)
 
         if win32gui.GetClassName(hwnd) == "#32768":
-            # 윈도우의 절대 좌표 얻기
             left, top, _, _ = win32gui.GetWindowRect(hwnd)
-            # 화면 좌표로 변환
             screen_x, screen_y = left + relative_x, top + relative_y
 
-            # 클릭 전 잠시 대기
             time.sleep(0.5)
 
             lParam = win32api.MAKELONG(screen_x, screen_y)
