@@ -447,7 +447,12 @@ class MouseTracker(QWidget):
                 hwnd = win32gui.WindowFromPoint((x, y))
                 if hwnd:
                     self.print_window_hierarchy(hwnd)
-                if pressed and self.recording and not self.paused and not self.is_own_window(hwnd):
+                if (
+                    pressed
+                    and self.recording
+                    and not self.paused
+                    and not self.is_own_window(hwnd)
+                ):
                     self.record_click_event(x, y, hwnd, button, move_cursor=False)
             except Exception as e:
                 logging.error(f"Error in on_click: {e}")
@@ -635,7 +640,9 @@ class MouseTracker(QWidget):
         else:
             self.recording = False
             self.record_button.setText("Start Recording")
-            self.pause_button.setEnabled(False)  # 녹화가 중지되면 일시 중지 버튼 비활성화
+            self.pause_button.setEnabled(
+                False
+            )  # 녹화가 중지되면 일시 중지 버튼 비활성화
             self.status_bar.showMessage("Recording stopped")
 
     def toggle_pause(self):
@@ -744,7 +751,11 @@ class MouseTracker(QWidget):
 
         # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         for target_image_info in event["image"].get("target_paths", []):
-            if check_image_match(target_image_info["path"], self.capture_thread.capture_window_image(hwnd), event.get("similarity_threshold", 0.6)):
+            if check_image_match(
+                target_image_info["path"],
+                self.capture_thread.capture_window_image(hwnd),
+                event.get("similarity_threshold", 0.6),
+            ):
                 logging.info("Image match found.")
                 break
         else:
@@ -767,7 +778,7 @@ class MouseTracker(QWidget):
                         _, max_val, _, max_loc = cv2.minMaxLoc(result)
 
                         print(f"Max value: {max_val}, location: {max_loc}")
-                        
+
                         if max_val >= event.get("similarity_threshold", 0.6):
                             event["relative_x"], event["relative_y"] = max_loc
                             break
