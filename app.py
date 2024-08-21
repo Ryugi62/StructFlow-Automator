@@ -346,7 +346,7 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         # temp 폴더안에 모든 파일 삭제
         for file in os.listdir("temp"):
             os.remove(os.path.join("temp", file))
-            
+
         # SimpleMouseTracker 실행
         self.parent.run_simple_mouse_tracker(ordered_items)
 
@@ -657,6 +657,8 @@ class App(SingletonApp, ctk.CTk):
                     print("태양광 파일이 없습니다.")
                     return
 
+                print(solar_file)
+
                 if not self.window_manager.is_midas_gen_open(solar_file):
                     self.window_manager.open_midas_gen_file(
                         solar_file, 17, 14, 1906, 1028
@@ -744,27 +746,50 @@ class App(SingletonApp, ctk.CTk):
 
                     break
 
-                # table.json
-                self.clipboard_clear()
-                self.run_json_file("table.json")
-                if not self.save_clipboard_to_file("solar_table.txt"):
-                    print("Table generation failed. Restarting from the beginning.")
-                    continue
+                while True:
+                    # table.json
+                    self.clipboard_clear()
+                    self.run_json_file("table.json")
 
-                self.clipboard_clear()
-                self.run_json_file("unactive_dummy.json")
-                if not self.get_temp_file_path("unactive_dummy.jpg"):
-                    print("Unactive dummy generation failed. Restarting from the beginning.")
-                    continue
+                    if not self.save_clipboard_to_file("solar_table.txt"):
+                        print("Table generation failed. Restarting from the beginning.")
+                        continue
 
-                # Boundaries_type.json
-                self.run_json_file("boundaries_type.json")
-                if not self.get_temp_file_path("boundaries_type.jpg"):
-                    print(
-                        "Boundaries type generation failed. Restarting from the beginning."
-                    )
-                    continue
+                    break
 
+                while True:
+                    self.clipboard_clear()
+                    self.run_json_file("unactive_dummy.json")
+                    if not self.get_temp_file_path("unactive_dummy.jpg"):
+                        print(
+                            "Unactive dummy generation failed. Restarting from the beginning."
+                        )
+                        continue
+
+                    break
+
+                while True:
+                    # Boundaries_type.json
+                    self.run_json_file("boundaries_type.json")
+                    if not self.get_temp_file_path("boundaries_type.jpg"):
+                        print(
+                            "Boundaries type generation failed. Restarting from the beginning."
+                        )
+                        continue
+
+                    break
+
+                while True:
+                    # set_reaction_force_moments
+                    self.run_json_file("set_reaction_force_moments.json")
+                    self.run_json_file("create_img_reaction_force_moments.json")
+                    if not self.get_temp_file_path("reaction_force_moments.jpg"):
+                        print(
+                            "Reaction force moments generation failed. Restarting from the beginning."
+                        )
+                        continue
+
+                    break
             finally:
                 self.window_manager.restore_original_position_and_size()
                 self.window_manager.close_midas_gen()
