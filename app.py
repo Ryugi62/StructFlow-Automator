@@ -473,7 +473,7 @@ class App(SingletonApp, ctk.CTk):
         )
 
     def open_file_dialog(self, entry_widget):
-        file_path = filedialog.askopenfilename()
+        file_path = filedialog.askopenfilename(filetypes=[("MGB Files", "*.mgb"), ("MDPB Files", "*.mdpb")])
         if file_path:
             entry_widget.delete(0, "end")
             entry_widget.insert(0, file_path)
