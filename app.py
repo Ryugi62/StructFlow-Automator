@@ -11,6 +11,7 @@ from tkinter import filedialog, Listbox, TclError
 from dotenv import load_dotenv
 import pandas as pd
 import pyperclip
+import sys
 
 
 def extract_purlin_girth_data(file_path):
@@ -163,6 +164,75 @@ class MidasWindowManager:
         rect = win32gui.GetWindowRect(hwnd)
         self.original_position = (rect[0], rect[1])
         self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
+
+    def run_window_layout_manager(
+        self, exe_path, window_title, ini_file, timeout=300
+    ):  # 5 minutes timeout
+        command = [exe_path, "Gen", window_title, ini_file]
+
+        print(f"Executing command: {' '.join(command)}")
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        start_time = time.time()
+        output_lines = []
+        while True:
+            output = process.stdout.readline()
+            if output == "" and process.poll() is not None:
+                break
+            if output:
+                output_line = output.strip()
+                print(output_line)
+                output_lines.append(output_line)
+
+            # Check for timeout
+            if time.time() - start_time > timeout:
+                print(f"Timeout after {timeout} seconds. Terminating process.")
+                process.terminate()
+                return False, output_lines
+
+        # Process has finished, check return code
+        rc = process.poll()
+        if rc == 0:
+            print("Process completed successfully.")
+            return True, output_lines
+        else:
+            error = process.stderr.read()
+            print(f"Error occurred: {error}")
+            return False, output_lines
+
+    def set_ui_position_and_size(self, hwnd, file_name):
+        try:
+            # 현재 폴더에 있는 WindowLayoutManager.exe를 실행시킴
+            program_name = os.path.join(
+                os.path.dirname(__file__), "WindowLayoutManager.exe"
+            )
+
+            # hwnd로 윈도우 창 이름을 저장
+            window_title = win32gui.GetWindowText(hwnd)
+
+            # exe_path = ".\\WindowLayoutManager.exe"
+            exe_path = os.path.join(
+                os.path.dirname(__file__), "WindowLayoutManager.exe"
+            )
+
+            success, _ = self.run_window_layout_manager(
+                exe_path, window_title, file_name
+            )
+
+            if success:
+                print("Window layout restoration process completed successfully.")
+            else:
+                print("Window layout restoration failed or timed out.")
+
+        except Exception as e:
+            print(f"Failed to set UI position and size: {e}")
 
     def set_window_position_and_size(self, hwnd, x, y, width, height):
         # 최소화 되어 있을 경우 복원
@@ -473,7 +543,9 @@ class App(SingletonApp, ctk.CTk):
         )
 
     def open_file_dialog(self, entry_widget):
-        file_path = filedialog.askopenfilename(filetypes=[("MGB Files", "*.mgb"), ("MDPB Files", "*.mdpb")])
+        file_path = filedialog.askopenfilename(
+            filetypes=[("MGB Files", "*.mgb"), ("MDPB Files", "*.mdpb")]
+        )
         if file_path:
             entry_widget.delete(0, "end")
             entry_widget.insert(0, file_path)
@@ -663,20 +735,22 @@ class App(SingletonApp, ctk.CTk):
                     self.window_manager.open_midas_gen_file(
                         solar_file, 17, 14, 1906, 1028
                     )
-                    self.window_manager.save_original_position_and_size(
-                        self.window_manager.midas_hwnd
-                    )
-                    self.window_manager.set_window_position_and_size(
-                        self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-                    )
                 else:
                     print("Midas Gen이 이미 열려 있습니다.")
-                    self.window_manager.save_original_position_and_size(
-                        self.window_manager.midas_hwnd
-                    )
-                    self.window_manager.set_window_position_and_size(
-                        self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-                    )
+
+                self.window_manager.save_original_position_and_size(
+                    self.window_manager.midas_hwnd
+                )
+
+                self.window_manager.set_ui_position_and_size(
+                    self.window_manager.midas_hwnd, "midas_gen.ini"
+                )
+
+                self.window_manager.set_window_position_and_size(
+                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
+                )
+
+                return
 
                 # display.json
                 self.run_json_file("display.json")
@@ -791,82 +865,85 @@ class App(SingletonApp, ctk.CTk):
 
                     break
             finally:
-                self.window_manager.restore_original_position_and_size()
-                self.window_manager.close_midas_gen()
                 print("타입분할(태양광) 작업 완료")
-                break
+                self.window_manager.restore_original_position_and_size()
+        #     finally:
+        #         self.window_manager.restore_original_position_and_size()
+        #         self.window_manager.close_midas_gen()
+        #         print("타입분할(태양광) 작업 완료")
+        #         break
 
-        hangul_file_path = os.path.join(
-            os.path.dirname(__file__),
-            "StructFlow-Automator-Private",
-            "hwp_sample",
-            "1. 표지(건물위, 슬래브위).hwp",
-        )
-        import datetime
+        # hangul_file_path = os.path.join(
+        #     os.path.dirname(__file__),
+        #     "StructFlow-Automator-Private",
+        #     "hwp_sample",
+        #     "1. 표지(건물위, 슬래브위).hwp",
+        # )
+        # import datetime
 
-        now = datetime.datetime.now()
+        # now = datetime.datetime.now()
 
-        with open(self.get_temp_file_path("년월.txt"), "w") as f:
-            f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
+        # with open(self.get_temp_file_path("년월.txt"), "w") as f:
+        #     f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
 
-        import re
+        # import re
 
-        # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
-        # path = 태양광에 있는 값
-        path = self.file_entries["태양광"].get()
+        # # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
+        # # path = 태양광에 있는 값
+        # path = self.file_entries["태양광"].get()
 
-        주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        주소상세_pattern = (
-            r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
-        )
-        지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        태양광위치_pattern = r"\((.*?)\)-完"
+        # 주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        # 주소상세_pattern = (
+        #     r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
+        # )
+        # 지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        # 태양광위치_pattern = r"\((.*?)\)-完"
 
-        주소 = re.search(주소_pattern, path).group(1)
-        주소상세 = re.search(주소상세_pattern, path).group(1)
-        지역 = re.search(지역_pattern, path).group(
-            1
-        )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
-        태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
-        태양광위치 = re.search(태양광위치_pattern, path).group(1)
+        # 주소 = re.search(주소_pattern, path).group(1)
+        # 주소상세 = re.search(주소상세_pattern, path).group(1)
+        # 지역 = re.search(지역_pattern, path).group(
+        #     1
+        # )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
+        # 태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
+        # 태양광위치 = re.search(태양광위치_pattern, path).group(1)
 
-        with open(self.get_temp_file_path("주소.txt"), "w") as f:
-            f.write(주소)
+        # with open(self.get_temp_file_path("주소.txt"), "w") as f:
+        #     f.write(주소)
 
-        with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
-            f.write(주소상세)
+        # with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
+        #     f.write(주소상세)
 
-        with open(self.get_temp_file_path("지역.txt"), "w") as f:
-            f.write(지역)
+        # with open(self.get_temp_file_path("지역.txt"), "w") as f:
+        #     f.write(지역)
 
-        with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
-            f.write(태양광명칭)
+        # with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
+        #     f.write(태양광명칭)
 
-        with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
-            f.write(태양광위치)
+        # with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
+        #     f.write(태양광위치)
 
-        replace_files = [
-            # ("{{위치도}}", "위치도.png"),
-            ("{{주소}}", "주소.txt"),
-            ("{{주소상세}}", "주소상세.txt"),
-            ("{{지역}}", "지역.txt"),
-            ("{{태양광명칭}}", "태양광명칭.txt"),
-            ("{{년월}}", "년월.txt"),
-            ("{{태양광위치}}", "태양광위치.txt"),
-            ("{{3.1모듈배치}}", "100.emf"),
-            ("{{3.2모듈배치}}", "101.emf"),
-        ]
+        # replace_files = [
+        #     # ("{{위치도}}", "위치도.png"),
+        #     ("{{주소}}", "주소.txt"),
+        #     ("{{주소상세}}", "주소상세.txt"),
+        #     ("{{지역}}", "지역.txt"),
+        #     ("{{태양광명칭}}", "태양광명칭.txt"),
+        #     ("{{년월}}", "년월.txt"),
+        #     ("{{태양광위치}}", "태양광위치.txt"),
+        #     ("{{3.1모듈배치}}", "100.emf"),
+        #     ("{{3.2모듈배치}}", "101.emf"),
+        # ]
 
-        # 실행할 명령어 구성
-        command = f'python hangle.py "{hangul_file_path}"'
-        for placeholder, file_name in replace_files:
-            file_path = self.get_temp_file_path(file_name)
-            if os.path.exists(file_path):
-                print(f"File exists: {file_path}")
-            else:
-                print(f"File does not exist: {file_path}")
-            command += f' "{placeholder}" "{file_path}"'
-        os.system(command)
+        # # 실행할 명령어 구성
+        # command = f'python hangle.py "{hangul_file_path}"'
+        # for placeholder, file_name in replace_files:
+        #     file_path = self.get_temp_file_path(file_name)
+        #     if os.path.exists(file_path):
+        #         print(f"File exists: {file_path}")
+        #     else:
+        #         print(f"File does not exist: {file_path}")
+        #     command += f' "{placeholder}" "{file_path}"'
+        # os.system(command)
 
     def run_type_division_building(self):
         print("타입분할(건물) 작업 시작")
@@ -1080,5 +1157,7 @@ class App(SingletonApp, ctk.CTk):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+
     app = App()
     app.mainloop()
