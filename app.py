@@ -750,8 +750,6 @@ class App(SingletonApp, ctk.CTk):
                     self.window_manager.midas_hwnd, 17, 14, 1906, 1028
                 )
 
-                return
-
                 # display.json
                 self.run_json_file("display.json")
 
@@ -865,85 +863,82 @@ class App(SingletonApp, ctk.CTk):
 
                     break
             finally:
-                print("타입분할(태양광) 작업 완료")
                 self.window_manager.restore_original_position_and_size()
-        #     finally:
-        #         self.window_manager.restore_original_position_and_size()
-        #         self.window_manager.close_midas_gen()
-        #         print("타입분할(태양광) 작업 완료")
-        #         break
+                self.window_manager.close_midas_gen()
+                print("타입분할(태양광) 작업 완료")
+                break
 
-        # hangul_file_path = os.path.join(
-        #     os.path.dirname(__file__),
-        #     "StructFlow-Automator-Private",
-        #     "hwp_sample",
-        #     "1. 표지(건물위, 슬래브위).hwp",
-        # )
-        # import datetime
+        hangul_file_path = os.path.join(
+            os.path.dirname(__file__),
+            "StructFlow-Automator-Private",
+            "hwp_sample",
+            "1. 표지(건물위, 슬래브위).hwp",
+        )
+        import datetime
 
-        # now = datetime.datetime.now()
+        now = datetime.datetime.now()
 
-        # with open(self.get_temp_file_path("년월.txt"), "w") as f:
-        #     f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
+        with open(self.get_temp_file_path("년월.txt"), "w") as f:
+            f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
 
-        # import re
+        import re
 
-        # # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
-        # # path = 태양광에 있는 값
-        # path = self.file_entries["태양광"].get()
+        # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
+        # path = 태양광에 있는 값
+        path = self.file_entries["태양광"].get()
 
-        # 주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        # 주소상세_pattern = (
-        #     r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
-        # )
-        # 지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        # 태양광위치_pattern = r"\((.*?)\)-完"
+        주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        주소상세_pattern = (
+            r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
+        )
+        지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
+        태양광위치_pattern = r"\((.*?)\)-完"
 
-        # 주소 = re.search(주소_pattern, path).group(1)
-        # 주소상세 = re.search(주소상세_pattern, path).group(1)
-        # 지역 = re.search(지역_pattern, path).group(
-        #     1
-        # )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
-        # 태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
-        # 태양광위치 = re.search(태양광위치_pattern, path).group(1)
+        주소 = re.search(주소_pattern, path).group(1)
+        주소상세 = re.search(주소상세_pattern, path).group(1)
+        지역 = re.search(지역_pattern, path).group(
+            1
+        )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
+        태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
+        태양광위치 = re.search(태양광위치_pattern, path).group(1)
 
-        # with open(self.get_temp_file_path("주소.txt"), "w") as f:
-        #     f.write(주소)
+        with open(self.get_temp_file_path("주소.txt"), "w") as f:
+            f.write(주소)
 
-        # with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
-        #     f.write(주소상세)
+        with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
+            f.write(주소상세)
 
-        # with open(self.get_temp_file_path("지역.txt"), "w") as f:
-        #     f.write(지역)
+        with open(self.get_temp_file_path("지역.txt"), "w") as f:
+            f.write(지역)
 
-        # with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
-        #     f.write(태양광명칭)
+        with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
+            f.write(태양광명칭)
 
-        # with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
-        #     f.write(태양광위치)
+        with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
+            f.write(태양광위치)
 
-        # replace_files = [
-        #     # ("{{위치도}}", "위치도.png"),
-        #     ("{{주소}}", "주소.txt"),
-        #     ("{{주소상세}}", "주소상세.txt"),
-        #     ("{{지역}}", "지역.txt"),
-        #     ("{{태양광명칭}}", "태양광명칭.txt"),
-        #     ("{{년월}}", "년월.txt"),
-        #     ("{{태양광위치}}", "태양광위치.txt"),
-        #     ("{{3.1모듈배치}}", "100.emf"),
-        #     ("{{3.2모듈배치}}", "101.emf"),
-        # ]
+        replace_files = [
+            # ("{{위치도}}", "위치도.png"),
+            ("{{주소}}", "주소.txt"),
+            ("{{주소상세}}", "주소상세.txt"),
+            ("{{지역}}", "지역.txt"),
+            ("{{태양광명칭}}", "태양광명칭.txt"),
+            ("{{년월}}", "년월.txt"),
+            ("{{태양광위치}}", "태양광위치.txt"),
+            ("{{3.1모듈배치}}", "100.emf"),
+            ("{{3.2모듈배치}}", "101.emf"),
+        ]
 
-        # # 실행할 명령어 구성
-        # command = f'python hangle.py "{hangul_file_path}"'
-        # for placeholder, file_name in replace_files:
-        #     file_path = self.get_temp_file_path(file_name)
-        #     if os.path.exists(file_path):
-        #         print(f"File exists: {file_path}")
-        #     else:
-        #         print(f"File does not exist: {file_path}")
-        #     command += f' "{placeholder}" "{file_path}"'
-        # os.system(command)
+        # 실행할 명령어 구성
+        command = f'python hangle.py "{hangul_file_path}"'
+        for placeholder, file_name in replace_files:
+            file_path = self.get_temp_file_path(file_name)
+            if os.path.exists(file_path):
+                print(f"File exists: {file_path}")
+            else:
+                print(f"File does not exist: {file_path}")
+            command += f' "{placeholder}" "{file_path}"'
+        os.system(command)
 
     def run_type_division_building(self):
         print("타입분할(건물) 작업 시작")
