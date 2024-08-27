@@ -106,6 +106,8 @@ class MidasWindowManager:
         hwnds = self._get_hwnds_by_filepath(file_path)
         if hwnds:
             self.midas_hwnd = hwnds[0]
+
+        print(f"Midas Gen hwnds: {self.midas_hwnd}")
         return bool(hwnds)
 
     def _get_hwnds_by_filepath(self, file_path):
@@ -151,7 +153,10 @@ class MidasWindowManager:
         return True
 
     def save_original_position_and_size(self):
+        print(self.midas_hwnd)
         if self.midas_hwnd:
+            print("Midas Gen is open.")
+            print("Saving original position and size.")
             rect = win32gui.GetWindowRect(self.midas_hwnd)
             self.original_position = (rect[0], rect[1])
             self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
@@ -216,13 +221,16 @@ class MidasWindowManager:
         if self.midas_hwnd and self.original_position and self.original_size:
             try:
                 top_hwnd = self.get_top_level_parent(self.midas_hwnd)
-                self.set_window_position_and_size(
-                    top_hwnd,
-                    self.original_position[0],
-                    self.original_position[1],
-                    self.original_size[0],
-                    self.original_size[1],
-                )
+                if self.original_position == "maximized":
+                    win32gui.ShowWindow(top_hwnd, win32con.SW_MAXIMIZE)
+                else:
+                    self.set_window_position_and_size(
+                        top_hwnd,
+                        self.original_position[0],
+                        self.original_position[1],
+                        self.original_size[0],
+                        self.original_size[1],
+                    )
             except win32gui.error as e:
                 print(f"Failed to restore original position and size: {e}")
 
@@ -250,6 +258,7 @@ class MidasWindowManager:
     def close_midas_gen(self):
         if self.midas_hwnd:
             win32gui.PostMessage(self.midas_hwnd, win32con.WM_CLOSE, 0, 0)
+            self.midas_hwnd = None
 
     def get_top_level_parent(self, hwnd):
         parent = hwnd
@@ -610,16 +619,15 @@ class App(ctk.CTk):
         if not self.window_manager.open_midas_gen_file(solar_file):
             print("Midas Gen 파일이 열리지 않았습니다.")
             return
+        
         self.window_manager.save_original_position_and_size()
 
         self.window_manager.set_ui_position_and_size(
             self.window_manager.midas_hwnd, "midas_gen.ini"
         )
 
-        time.sleep(5)
-
         self.window_manager.set_window_position_and_size(
-            self.window_manager.midas_hwnd, 0, 0, 1280, 768
+            self.window_manager.midas_hwnd, 50, 50, 1800, 930
         )
 
     def get_satellite_image_info(self):
@@ -720,6 +728,8 @@ class App(ctk.CTk):
             # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
+            return
+
             # 마이다스 내부 자료 생성 자동화 시작
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
@@ -728,6 +738,7 @@ class App(ctk.CTk):
             self.generate_boundaries_type()
             self.set_reaction_force_moments()
         finally:
+            return
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")
