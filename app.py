@@ -10,103 +10,88 @@ import pyperclip
 from tkinter import filedialog, Listbox, TclError
 from dotenv import load_dotenv
 import pandas as pd
-import pyperclip
 import sys
 
 
-def extract_purlin_girth_data(file_path):
-    try:
-        # Read the Excel file
-        df = pd.read_excel(file_path, sheet_name="Purlin _ Girth")
+class FileHandler:
+    @staticmethod
+    def extract_purlin_girth_data(file_path):
+        try:
+            df = pd.read_excel(file_path, sheet_name="Purlin _ Girth")
+            df = df.iloc[2:].reset_index(drop=True)
+            df.columns = [
+                "CHK",
+                "CHK.1",
+                "Apply Member To",
+                "Material",
+                "Member Type",
+                "Section",
+                "Unnamed: 6",
+                "Unnamed: 7",
+                "Unnamed: 8",
+                "Unnamed: 9",
+                "Unnamed: 10",
+                "Unnamed: 11",
+                "Unnamed: 12",
+                "Unnamed: 13",
+                "Span",
+                "Unnamed: 15",
+                "Unnamed: 16",
+                "Unbraced Length",
+                "Unnamed: 18",
+                "Factor",
+                "Unnamed: 20",
+                "Design Load",
+                "Unnamed: 22",
+                "Unnamed: 23",
+                "Unnamed: 24",
+                "Unnamed: 25",
+                "Unnamed: 26",
+                "Unnamed: 27",
+                "Unnamed: 28",
+                "Unnamed: 29",
+                "Unnamed: 30",
+                "Unnamed: 31",
+                "Unnamed: 32",
+                "Unnamed: 33",
+                "Unnamed: 34",
+                "Unnamed: 35",
+                "Defl. Criteria",
+                "Width-Thick Ratio",
+                "Unnamed: 38",
+                "Unnamed: 39",
+                "Moment Strength",
+                "Unnamed: 41",
+                "Unnamed: 42",
+                "Unnamed: 43",
+                "Unnamed: 44",
+                "Unnamed: 45",
+                "Unnamed: 46",
+                "Shear Strength",
+                "Unnamed: 48",
+                "Unnamed: 49",
+                "Unnamed: 50",
+                "Unnamed: 51",
+                "Unnamed: 52",
+                "Deflection",
+                "Unnamed: 54",
+            ]
 
-        # Remove the first two rows and reset index
-        df = df.iloc[2:].reset_index(drop=True)
-
-        # Set column names
-        df.columns = [
-            "CHK",
-            "CHK.1",
-            "Apply Member To",
-            "Material",
-            "Member Type",
-            "Section",
-            "Unnamed: 6",
-            "Unnamed: 7",
-            "Unnamed: 8",
-            "Unnamed: 9",
-            "Unnamed: 10",
-            "Unnamed: 11",
-            "Unnamed: 12",
-            "Unnamed: 13",
-            "Span",
-            "Unnamed: 15",
-            "Unnamed: 16",
-            "Unbraced Length",
-            "Unnamed: 18",
-            "Factor",
-            "Unnamed: 20",
-            "Design Load",
-            "Unnamed: 22",
-            "Unnamed: 23",
-            "Unnamed: 24",
-            "Unnamed: 25",
-            "Unnamed: 26",
-            "Unnamed: 27",
-            "Unnamed: 28",
-            "Unnamed: 29",
-            "Unnamed: 30",
-            "Unnamed: 31",
-            "Unnamed: 32",
-            "Unnamed: 33",
-            "Unnamed: 34",
-            "Unnamed: 35",
-            "Defl. Criteria",
-            "Width-Thick Ratio",
-            "Unnamed: 38",
-            "Unnamed: 39",
-            "Moment Strength",
-            "Unnamed: 41",
-            "Unnamed: 42",
-            "Unnamed: 43",
-            "Unnamed: 44",
-            "Unnamed: 45",
-            "Unnamed: 46",
-            "Shear Strength",
-            "Unnamed: 48",
-            "Unnamed: 49",
-            "Unnamed: 50",
-            "Unnamed: 51",
-            "Unnamed: 52",
-            "Deflection",
-            "Unnamed: 54",
-        ]
-
-        # Extract and convert Deflection and Ratio
-        df["Deflection"] = (
-            df["Deflection"].astype(str).str.extract(r"(\d+\.\d+)").astype(float)
-        )
-        df["Ratio"] = (
-            df["Unnamed: 54"].astype(str).str.extract(r"(\d+\.\d+)").astype(float)
-        )
-
-        # Calculate Span/300
-        df["Calculated Span/300"] = (df["Span"] * 1000 / 300).round(2)
-
-        # Select required columns and remove rows with NaN values
-        output_df = df[["Deflection", "Calculated Span/300", "Ratio"]].dropna()
-
-        # Convert to list and then to string
-        result = output_df.to_string(index=False, header=False)
-
-        # Copy to clipboard
-        pyperclip.copy(result)
-
-        print("Data successfully extracted and copied to clipboard.")
-        print("Extracted data:")
-        print(result)
-
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
+            df["Deflection"] = (
+                df["Deflection"].astype(str).str.extract(r"(\d+\.\d+)").astype(float)
+            )
+            df["Ratio"] = (
+                df["Unnamed: 54"].astype(str).str.extract(r"(\d+\.\d+)").astype(float)
+            )
+            df["Calculated Span/300"] = (df["Span"] * 1000 / 300).round(2)
+            output_df = df[["Deflection", "Calculated Span/300", "Ratio"]].dropna()
+            result = output_df.to_string(index=False, header=False)
+            pyperclip.copy(result)
+            print("Data successfully extracted and copied to clipboard.")
+            print("Extracted data:")
+            print(result)
+        except Exception as e:
+            print(f"An error occurred while extracting data: {str(e)}")
 
 
 class MidasWindowManager:
@@ -121,16 +106,11 @@ class MidasWindowManager:
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
                 try:
                     process = psutil.Process(pid)
-                    try:
-                        if any(
-                            file_path.lower() in cmd.lower()
-                            for cmd in process.cmdline()
-                        ):
-                            hwnds.append(hwnd)
-                    except psutil.AccessDenied:
-                        # Skip this process if we don't have permission to access its information
-                        pass
-                except psutil.NoSuchProcess:
+                    if any(
+                        file_path.lower() in cmd.lower() for cmd in process.cmdline()
+                    ):
+                        hwnds.append(hwnd)
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
                     pass
             return True
 
@@ -140,35 +120,54 @@ class MidasWindowManager:
             self.midas_hwnd = hwnds[0]
         return bool(hwnds)
 
-    def open_midas_gen_file(self, file_path, x, y, width, height):
+    def open_midas_gen_file(self, file_path):
         midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"
+
+        if not os.path.exists(midas_gen_executable):
+            print("Midas Gen executable not found.")
+            return False
 
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = win32con.SW_HIDE
-        proc = subprocess.Popen(
-            [midas_gen_executable, file_path], startupinfo=startupinfo
-        )
+        subprocess.Popen([midas_gen_executable, file_path], startupinfo=startupinfo)
 
         while not self.is_midas_gen_open(file_path):
             print("Waiting for Midas Gen to open...")
             time.sleep(5)
 
-        time.sleep(15)
+        print("Midas Gen opened successfully.")
+        time.sleep(10)
 
-        while not self.is_midas_gen_open(file_path):
-            print("Waiting for Midas Gen to open...")
-            time.sleep(5)
+        return True
 
-    def save_original_position_and_size(self, hwnd):
-        rect = win32gui.GetWindowRect(hwnd)
-        self.original_position = (rect[0], rect[1])
-        self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
+    def save_original_position_and_size(self):
+        if self.midas_hwnd:
+            rect = win32gui.GetWindowRect(self.midas_hwnd)
+            self.original_position = (rect[0], rect[1])
+            self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
 
-    def run_window_layout_manager(
-        self, exe_path, window_title, ini_file, timeout=300
-    ):  # 5 minutes timeout
-        command = [exe_path, "Gen", window_title, ini_file]
+    def set_ui_position_and_size(self, hwnd, ini_file):
+        try:
+            window_title = win32gui.GetWindowText(hwnd)
+            exe_path = os.path.join(
+                os.path.dirname(__file__), "WindowLayoutManager.exe"
+            )
+
+            success, _ = self.run_window_layout_manager(
+                exe_path, window_title, ini_file
+            )
+
+            if success:
+                print("Window layout restoration process completed successfully.")
+            else:
+                print("Window layout restoration failed or timed out.")
+
+        except Exception as e:
+            print(f"Failed to set UI position and size: {e}")
+
+    def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
+        command = [exe_path, window_title, ini_file]
 
         print(f"Executing command: {' '.join(command)}")
         process = subprocess.Popen(
@@ -207,58 +206,6 @@ class MidasWindowManager:
             print(f"Error occurred: {error}")
             return False, output_lines
 
-    def set_ui_position_and_size(self, hwnd, file_name):
-        try:
-            # 현재 폴더에 있는 WindowLayoutManager.exe를 실행시킴
-            program_name = os.path.join(
-                os.path.dirname(__file__), "WindowLayoutManager.exe"
-            )
-
-            # hwnd로 윈도우 창 이름을 저장
-            window_title = win32gui.GetWindowText(hwnd)
-
-            # exe_path = ".\\WindowLayoutManager.exe"
-            exe_path = os.path.join(
-                os.path.dirname(__file__), "WindowLayoutManager.exe"
-            )
-
-            success, _ = self.run_window_layout_manager(
-                exe_path, window_title, file_name
-            )
-
-            if success:
-                print("Window layout restoration process completed successfully.")
-            else:
-                print("Window layout restoration failed or timed out.")
-
-        except Exception as e:
-            print(f"Failed to set UI position and size: {e}")
-
-    def set_window_position_and_size(self, hwnd, x, y, width, height):
-        # 최소화 되어 있을 경우 복원
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-
-        win32gui.SetWindowPos(
-            hwnd,
-            win32con.HWND_TOP,
-            x,
-            y,
-            width,
-            height,
-            win32con.SWP_NOACTIVATE,
-        )
-
-        # z-order를 최하위로 설정
-        win32gui.SetWindowPos(
-            hwnd,
-            win32con.HWND_BOTTOM,
-            0,
-            0,
-            0,
-            0,
-            win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
-        )
-
     def restore_original_position_and_size(self):
         if self.midas_hwnd and self.original_position and self.original_size:
             try:
@@ -273,6 +220,27 @@ class MidasWindowManager:
             except win32gui.error as e:
                 print(f"Failed to restore original position and size: {e}")
 
+    def set_window_position_and_size(self, hwnd, x, y, width, height):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOP,
+            x,
+            y,
+            width,
+            height,
+            win32con.SWP_NOACTIVATE,
+        )
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_BOTTOM,
+            0,
+            0,
+            0,
+            0,
+            win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
+        )
+
     def close_midas_gen(self):
         if self.midas_hwnd:
             win32gui.PostMessage(self.midas_hwnd, win32con.WM_CLOSE, 0, 0)
@@ -285,44 +253,20 @@ class MidasWindowManager:
                 return parent
             parent = new_parent
 
-    def get_hwnds_for_pid(self, pid):
-        def callback(hwnd, hwnds):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
-                _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
-                if found_pid == pid:
-                    hwnds.append(hwnd)
-            return True
-
-        hwnds = []
-        win32gui.EnumWindows(callback, hwnds)
-        return hwnds
-
-
-class SingletonApp:
-    _instance = None
-
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super().__new__(cls, *args, **kwargs)
-        return cls._instance
-
 
 class OrderSelectionWidget(ctk.CTkToplevel):
     def __init__(self, parent, checked_items, file_entries):
         super().__init__(parent)
         self.parent = parent
+        self.checked_items = checked_items
+        self.file_entries = file_entries
+        self.configure_ui()
+
+    def configure_ui(self):
         self.title("순서 선택")
         self.geometry("500x600")
         self.configure(fg_color="#2b2b2b")
-
-        self.checked_items = checked_items
-        self.file_entries = file_entries
         self.create_widgets()
-
-        self.lift()
-        self.focus_force()
-        self.grab_set()
-        self.attributes("-topmost", True)
 
     def create_widgets(self):
         title_label = ctk.CTkLabel(
@@ -409,22 +353,18 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         ordered_items = self.listbox.get(0, "end")
         print("순서:", ordered_items)
 
-        # temp 폴더 없으면 생성
         if not os.path.exists("temp"):
             os.makedirs("temp")
 
-        # temp 폴더안에 모든 파일 삭제
         for file in os.listdir("temp"):
             os.remove(os.path.join("temp", file))
 
-        # SimpleMouseTracker 실행
         self.parent.run_simple_mouse_tracker(ordered_items)
-
         self.grab_release()
         self.destroy()
 
 
-class App(SingletonApp, ctk.CTk):
+class App(ctk.CTk):
     WINDOW_GEOMETRY = "1280x768"
     WINDOW_TITLE = "Midas Linker"
     ICON_PATH = "./icons/StructFlow-Automator-Icon.ico"
@@ -646,30 +586,246 @@ class App(SingletonApp, ctk.CTk):
         if not os.path.exists(self.json_directory):
             os.makedirs(self.json_directory)
 
-    def minimize_all_windows(self):
-        def callback(hwnd, extra):
-            if win32gui.IsWindowVisible(hwnd):
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                if pid == os.getpid():  # 현재 프로세스의 창만 최소화
-                    win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-            return True
-
-        win32gui.EnumWindows(callback, None)
-
     def run_simple_mouse_tracker(self, ordered_items):
-        # 모든 gui 최소화
-        self.minimize_all_windows()
-
         for item in ordered_items:
             if item in self.checkbox_functions:
                 try:
                     self.checkbox_functions[item]()
                 except Exception as e:
                     print(f"Error in {item}: {str(e)}")
-                    # 오류 로그를 파일에 저장하거나 사용자에게 표시할 수 있습니다.
 
-        # 모든 gui 복원
-        self.deiconify()
+    def open_solar_file(self):
+        solar_file = self.file_entries["태양광"].get()
+        if not solar_file:
+            print("태양광 파일이 없습니다.")
+            return
+
+        if not self.window_manager.open_midas_gen_file(solar_file):
+            print("Midas Gen 파일이 열리지 않았습니다.")
+            return
+        self.window_manager.save_original_position_and_size()
+
+        self.window_manager.set_ui_position_and_size(
+            self.window_manager.midas_hwnd, "midas_gen.ini"
+        )
+
+        self.window_manager.set_window_position_and_size(
+            self.window_manager.midas_hwnd, 0, 0, 1280, 768
+        )
+
+    def get_satellite_image(self):
+        while True:
+            self.run_json_file("open_satellite_image.json")
+            if not os.path.exists(self.get_temp_file_path("satellite_image.jpg")):
+                continue
+            break
+
+    def run_type_division_solar(self):
+        print("타입분할(태양광) 작업 시작")
+        try:
+            # self.open_solar_file()
+
+            self.get_satellite_image()
+
+            time.sleep(5)
+            return
+
+            # Main operations
+            self.run_steel_code_check()
+            self.run_cold_formed_steel_check()
+            self.generate_table()
+            self.generate_dummy_image()
+            self.generate_boundaries_type()
+            self.set_reaction_force_moments()
+
+            # Final cleanup
+        finally:
+            self.window_manager.restore_original_position_and_size()
+            self.window_manager.close_midas_gen()
+            print("타입분할(태양광) 작업 완료")
+
+    def run_type_division_building(self):
+        print("타입분할(건물) 작업 시작")
+        try:
+            pass
+        finally:
+            print("타입분할(건물) 작업 완료")
+
+    def run_building_solar_integration(self):
+        print("건물 / 태양광 통합 작업 시작")
+        try:
+            pass
+        finally:
+            print("건물 / 태양광 통합 작업 완료")
+
+    def run_crane(self):
+        print("크레인 작업 시작")
+        try:
+            pass
+        finally:
+            print("크레인 작업 완료")
+
+    def run_earthquake(self):
+        print("지진 작업 시작")
+        try:
+            pass
+        finally:
+            print("지진 작업 완료")
+
+    def run_floor_load(self):
+        print("바닥 활하중 작업 시작")
+        try:
+            pass
+        finally:
+            print("바닥 활하중 작업 완료")
+
+    def run_dead_load(self):
+        print("기타 고정하중 작업 시작")
+        try:
+            pass
+        finally:
+            print("기타 고정하중 작업 완료")
+
+    def run_purlin(self):
+        print("펄린 작업 시작")
+        try:
+            pass
+        finally:
+            print("펄린 작업 완료")
+
+    def run_basic_solar(self):
+        print("기본형 태양광 작업 시작")
+        try:
+            pass
+        finally:
+            print("기본형 태양광 작업 완료")
+
+    def run_attached_solar(self):
+        print("부착형 태양광 작업 시작")
+        try:
+            pass
+        finally:
+            print("부착형 태양광 작업 완료")
+
+    def run_aluminum_solar(self):
+        print("알류미늄 태양광 작업 시작")
+        try:
+            pass
+        finally:
+            print("알류미늄 태양광 작업 완료")
+
+    def run_footing(self):
+        print("토지위(푸팅) 작업 시작")
+        try:
+            pass
+        finally:
+            print("토지위(푸팅) 작업 완료")
+
+    def run_pile(self):
+        print("토지위(파일) 작업 시작")
+        try:
+            pass
+        finally:
+            print("토지위(파일) 작업 완료")
+
+    def run_slab(self):
+        print("슬라브위 작업 시작")
+        try:
+            pass
+        finally:
+            print("슬라브위 작업 완료")
+
+    def run_on_building(self):
+        print("건물위 작업 시작")
+        try:
+            pass
+        finally:
+            print("건물위 작업 완료")
+
+    def run_joint(self):
+        print("접합부 작업 시작")
+        try:
+            pass
+        finally:
+            print("접합부 작업 완료")
+
+    def run_safety_rope(self):
+        print("안전로프 작업 시작")
+        try:
+            pass
+        finally:
+            print("안전로프 작업 완료")
+
+    def run_steel_code_check(self):
+        while True:
+            try:
+                # Open and copy steel code check
+                self.run_json_file("open_widget_steel_code_check.json")
+                self.clear_clipboard()
+                self.run_json_file("copy_txt_steel_code_check.json")
+
+                if not self.save_clipboard_to_file("solar_steel_code_check.txt"):
+                    continue
+
+                self.run_json_file("create_img_steel_code_check.json")
+                if not os.path.exists(self.get_temp_file_path("100.emf")):
+                    continue
+            finally:
+                self.run_json_file("close_steel_code_check.json")
+            break
+
+    def run_cold_formed_steel_check(self):
+        while True:
+            try:
+                self.run_json_file("open_widget_cold_formed_steel_code_check.json")
+                self.clear_clipboard()
+                self.run_json_file("copy_txt_cold_formed_steel_code_check.json")
+
+                if not self.save_clipboard_to_file(
+                    "solar_cold_formed_steel_code_check.txt"
+                ):
+                    continue
+
+                self.run_json_file("create_img_cold_formed_steel_code_check.json")
+                if not os.path.exists(self.get_temp_file_path("201.emf")):
+                    continue
+            finally:
+                self.run_json_file("close_cold_formed_steel_code_check.json")
+            break
+
+    def generate_table(self):
+        while True:
+            self.clear_clipboard()
+            self.run_json_file("table.json")
+
+            if not self.save_clipboard_to_file("solar_table.txt"):
+                continue
+            break
+
+    def generate_dummy_image(self):
+        while True:
+            self.clear_clipboard()
+            self.run_json_file("unactive_dummy.json")
+            if not os.path.exists(self.get_temp_file_path("unactive_dummy.jpg")):
+                continue
+            break
+
+    def generate_boundaries_type(self):
+        while True:
+            self.run_json_file("boundaries_type.json")
+            if not os.path.exists(self.get_temp_file_path("boundaries_type.jpg")):
+                continue
+            break
+
+    def set_reaction_force_moments(self):
+        while True:
+            self.run_json_file("set_reaction_force_moments.json")
+            self.run_json_file("create_img_reaction_force_moments.json")
+            if not os.path.exists(
+                self.get_temp_file_path("reaction_force_moments.jpg")
+            ):
+                continue
+            break
 
     def run_json_file(self, json_file):
         json_path = os.path.join(self.json_directory, json_file)
@@ -681,332 +837,27 @@ class App(SingletonApp, ctk.CTk):
     def clear_clipboard(self):
         pyperclip.copy("")
 
-    def save_clipboard_to_file(self, file_path):
+    def save_clipboard_to_file(self, file_name):
         try:
             content = pyperclip.paste()
-        except Exception as e:
-            print(f"클립보드 접근 중 오류 발생: {e}")
-            return False
-
-        if not content.strip():
-            print(
-                f"경고: 클립보드가 비어 있습니다. 파일 {file_path}이(가) 저장되지 않았습니다."
-            )
-            return False
-
-        file_path = os.path.join(os.path.dirname(__file__), "temp", file_path)
-
-        try:
+            if not content.strip():
+                return False
+            file_path = self.get_temp_file_path(file_name)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
-        except IOError as e:
-            print(f"파일 저장 중 오류 발생: {e}")
-            return False
-
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            print(f"파일 {file_path}이(가) 성공적으로 저장되었습니다.")
             return True
-        else:
-            print(f"경고: 파일 {file_path}이(가) 비어 있거나 생성되지 않았습니다.")
+        except Exception as e:
+            print(f"Error saving clipboard content: {e}")
             return False
-
-    def clipboard_clear(self):
-        pyperclip.copy("")
 
     def get_temp_file_path(self, file_name):
-        current_directory = os.path.dirname(__file__)
-        temp_directory = os.path.join(current_directory, "temp")
+        temp_directory = os.path.join(os.path.dirname(__file__), "temp")
         if not os.path.exists(temp_directory):
             os.makedirs(temp_directory)
         return os.path.join(temp_directory, file_name)
 
-    def run_type_division_solar(self):
-        while True:
-            try:
-                print("타입분할(태양광) 작업 시작")
-                solar_file = self.file_entries["태양광"].get()
-                if not solar_file:
-                    print("태양광 파일이 없습니다.")
-                    return
-
-                print(solar_file)
-
-                if not self.window_manager.is_midas_gen_open(solar_file):
-                    self.window_manager.open_midas_gen_file(
-                        solar_file, 17, 14, 1906, 1028
-                    )
-                else:
-                    print("Midas Gen이 이미 열려 있습니다.")
-
-                self.window_manager.save_original_position_and_size(
-                    self.window_manager.midas_hwnd
-                )
-
-                self.window_manager.set_ui_position_and_size(
-                    self.window_manager.midas_hwnd, "midas_gen.ini"
-                )
-
-                self.window_manager.set_window_position_and_size(
-                    self.window_manager.midas_hwnd, 17, 14, 1906, 1028
-                )
-
-                # display.json
-                self.run_json_file("display.json")
-
-                # calculate.json
-                self.run_json_file("calculate.json")
-
-                while True:
-                    try:
-                        # open_widget_steel_code_check.json
-                        self.run_json_file("open_widget_steel_code_check.json")
-
-                        # copy_txt_steel_code_check.json
-                        self.clear_clipboard()
-                        self.run_json_file("copy_txt_steel_code_check.json")
-                        if not self.save_clipboard_to_file(
-                            "solar_steel_code_check.txt"
-                        ):
-                            print(
-                                "Steel code check failed. Restarting from the beginning."
-                            )
-                            continue
-
-                        # create_img_steel_code_check.json
-                        self.run_json_file("create_img_steel_code_check.json")
-                        if not os.path.exists(self.get_temp_file_path("100.emf")):
-                            print(
-                                "Steel code check failed. Restarting from the beginning."
-                            )
-                            continue
-                    finally:
-                        # close_steel_code_check.json
-                        self.run_json_file("close_steel_code_check.json")
-
-                    break
-
-                while True:
-                    try:
-                        # open_widget_cold_formed_steel_code_check.json
-                        self.run_json_file(
-                            "open_widget_cold_formed_steel_code_check.json"
-                        )
-
-                        # copy_txt_cold_formed_steel_code_check.json
-                        self.clear_clipboard()
-                        self.run_json_file("copy_txt_cold_formed_steel_code_check.json")
-                        if not self.save_clipboard_to_file(
-                            "solar_cold_formed_steel_code_check.txt"
-                        ):
-                            print(
-                                "Cold formed steel code check failed. Restarting from the beginning."
-                            )
-                            continue
-
-                        # create_img_cold_formed_steel_code_check.json
-                        self.run_json_file(
-                            "create_img_cold_formed_steel_code_check.json"
-                        )
-                        if not os.path.exists(self.get_temp_file_path("201.emf")):
-                            print(
-                                "Cold formed steel code check failed. Restarting from the beginning."
-                            )
-                            continue
-                    finally:
-                        # close_cold_formed_steel_code_check.json
-                        self.run_json_file("close_cold_formed_steel_code_check.json")
-
-                    break
-
-                while True:
-                    # table.json
-                    self.clipboard_clear()
-                    self.run_json_file("table.json")
-
-                    if not self.save_clipboard_to_file("solar_table.txt"):
-                        print("Table generation failed. Restarting from the beginning.")
-                        continue
-
-                    break
-
-                while True:
-                    self.clipboard_clear()
-                    self.run_json_file("unactive_dummy.json")
-                    if not self.get_temp_file_path("unactive_dummy.jpg"):
-                        print(
-                            "Unactive dummy generation failed. Restarting from the beginning."
-                        )
-                        continue
-
-                    break
-
-                while True:
-                    # Boundaries_type.json
-                    self.run_json_file("boundaries_type.json")
-                    if not self.get_temp_file_path("boundaries_type.jpg"):
-                        print(
-                            "Boundaries type generation failed. Restarting from the beginning."
-                        )
-                        continue
-
-                    break
-
-                while True:
-                    # set_reaction_force_moments
-                    self.run_json_file("set_reaction_force_moments.json")
-                    self.run_json_file("create_img_reaction_force_moments.json")
-                    if not self.get_temp_file_path("reaction_force_moments.jpg"):
-                        print(
-                            "Reaction force moments generation failed. Restarting from the beginning."
-                        )
-                        continue
-
-                    break
-            finally:
-                self.window_manager.restore_original_position_and_size()
-                self.window_manager.close_midas_gen()
-                print("타입분할(태양광) 작업 완료")
-                break
-
-        hangul_file_path = os.path.join(
-            os.path.dirname(__file__),
-            "StructFlow-Automator-Private",
-            "hwp_sample",
-            "1. 표지(건물위, 슬래브위).hwp",
-        )
-        import datetime
-
-        now = datetime.datetime.now()
-
-        with open(self.get_temp_file_path("년월.txt"), "w") as f:
-            f.write(now.strftime("%Y.%m"))  # 형식을 %Y.%m으로 변경
-
-        import re
-
-        # 파일 경로에서 주소, 태양광명칭, 주소상세, 태양광위치 추출
-        # path = 태양광에 있는 값
-        path = self.file_entries["태양광"].get()
-
-        주소_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        주소상세_pattern = (
-            r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리\s\d+-\d+,\s?\d+)"
-        )
-        지역_pattern = r"\d{3,4}-\(.+?\)([가-힣\s]+군\s[가-힣\s]+면\s[가-힣\s]+리)"
-        태양광위치_pattern = r"\((.*?)\)-完"
-
-        주소 = re.search(주소_pattern, path).group(1)
-        주소상세 = re.search(주소상세_pattern, path).group(1)
-        지역 = re.search(지역_pattern, path).group(
-            1
-        )  # 예시 : 경기도 광주시 오포읍 -> 경기도 광주시 오포읍
-        태양광명칭 = re.search(r"(\d+~\d+호태양광발전소)", path).group(1)
-        태양광위치 = re.search(태양광위치_pattern, path).group(1)
-
-        with open(self.get_temp_file_path("주소.txt"), "w") as f:
-            f.write(주소)
-
-        with open(self.get_temp_file_path("주소상세.txt"), "w") as f:
-            f.write(주소상세)
-
-        with open(self.get_temp_file_path("지역.txt"), "w") as f:
-            f.write(지역)
-
-        with open(self.get_temp_file_path("태양광명칭.txt"), "w") as f:
-            f.write(태양광명칭)
-
-        with open(self.get_temp_file_path("태양광위치.txt"), "w") as f:
-            f.write(태양광위치)
-
-        replace_files = [
-            # ("{{위치도}}", "위치도.png"),
-            ("{{주소}}", "주소.txt"),
-            ("{{주소상세}}", "주소상세.txt"),
-            ("{{지역}}", "지역.txt"),
-            ("{{태양광명칭}}", "태양광명칭.txt"),
-            ("{{년월}}", "년월.txt"),
-            ("{{태양광위치}}", "태양광위치.txt"),
-            ("{{3.1모듈배치}}", "100.emf"),
-            ("{{3.2모듈배치}}", "101.emf"),
-        ]
-
-        # 실행할 명령어 구성
-        command = f'python hangle.py "{hangul_file_path}"'
-        for placeholder, file_name in replace_files:
-            file_path = self.get_temp_file_path(file_name)
-            if os.path.exists(file_path):
-                print(f"File exists: {file_path}")
-            else:
-                print(f"File does not exist: {file_path}")
-            command += f' "{placeholder}" "{file_path}"'
-        os.system(command)
-
-    def run_type_division_building(self):
-        print("타입분할(건물) 작업 시작")
-        print("타입분할(건물) 작업 완료")
-
-    def run_building_solar_integration(self):
-        print("건물 / 태양광 통합 작업 시작")
-        print("건물 / 태양광 통합 작업 완료")
-
-    def run_crane(self):
-        print("크레인 작업 시작")
-        print("크레인 작업 완료")
-
-    def run_earthquake(self):
-        print("지진 작업 시작")
-        print("지진 작업 완료")
-
-    def run_floor_load(self):
-        print("바닥 활하중 작업 시작")
-        print("바닥 활하중 작업 완료")
-
-    def run_dead_load(self):
-        print("기타 고정하중 작업 시작")
-        print("기타 고정하중 작업 완료")
-
-    def run_purlin(self):
-        print("펄린 작업 시작")
-        print("펄린 작업 완료")
-
-    def run_basic_solar(self):
-        print("기본형 태양광 작업 시작")
-        print("기본형 태양광 작업 완료")
-
-    def run_attached_solar(self):
-        print("부착형 태양광 작업 시작")
-        print("부착형 태양광 작업 완료")
-
-    def run_aluminum_solar(self):
-        print("알류미늄 태양광 작업 시작")
-        print("알류미늄 태양광 작업 완료")
-
-    def run_footing(self):
-        print("토지위(푸팅) 작업 시작")
-        print("토지위(푸팅) 작업 완료")
-
-    def run_pile(self):
-        print("토지위(파일) 작업 시작")
-        print("토지위(파일) 작업 완료")
-
-    def run_slab(self):
-        print("슬라브위 작업 시작")
-        print("슬라브위 작업 완료")
-
-    def run_on_building(self):
-        print("건물위 작업 시작")
-        print("건물위 작업 완료")
-
-    def run_joint(self):
-        print("접합부 작업 시작")
-        print("접합부 작업 완료")
-
-    def run_safety_rope(self):
-        print("안전로프 작업 시작")
-        print("안전로프 작업 완료")
-
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-
     app = App()
     app.mainloop()
