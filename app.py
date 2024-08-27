@@ -133,6 +133,10 @@ class MidasWindowManager:
             print("Midas Gen executable not found.")
             return False
 
+        if self.is_midas_gen_open(file_path):
+            print("Midas Gen is already open.")
+            return True
+
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = win32con.SW_HIDE
@@ -158,6 +162,7 @@ class MidasWindowManager:
             exe_path = os.path.join(
                 os.path.dirname(__file__), "WindowLayoutManager.exe"
             )
+            ini_file = os.path.join(os.path.dirname(__file__), "midas_gen.ini")
 
             success, _ = self.run_window_layout_manager(
                 exe_path, window_title, ini_file
@@ -170,7 +175,7 @@ class MidasWindowManager:
             print(f"Failed to set UI position and size: {e}")
 
     def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
-        command = [exe_path, window_title, ini_file]
+        command = [exe_path, rf'"{window_title}"', rf'"{ini_file}"']
         print(f"Executing command: {' '.join(command)}")
         process = subprocess.Popen(
             command,
@@ -709,6 +714,8 @@ class App(ctk.CTk):
             # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
+            return
+
             # 마이다스 내부 자료 생성 자동화 시작
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
@@ -717,6 +724,7 @@ class App(ctk.CTk):
             self.generate_boundaries_type()
             self.set_reaction_force_moments()
         finally:
+            return
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")

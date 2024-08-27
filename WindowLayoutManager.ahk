@@ -15,9 +15,9 @@ if (A_Args.Length() = 3) {
     isCliMode := true
     GoSub, AutoRestore
 } else if (A_Args.Length() >= 2) {
-    targetProgram := A_Args[1]
-    targetWindow := A_Args[2]
-    GoSub, ShowGUI
+    targetWindow := A_Args[1]
+    restoreFile := A_Args[2]
+    GoSub, AutoRestore
 } else {
     GoSub, ShowGUI
 }
