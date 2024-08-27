@@ -103,6 +103,14 @@ class MidasWindowManager:
         self.midas_hwnd = None
 
     def is_midas_gen_open(self, file_path):
+        hwnds = self._get_hwnds_by_filepath(file_path)
+        if hwnds:
+            self.midas_hwnd = hwnds[0]
+        return bool(hwnds)
+
+    def _get_hwnds_by_filepath(self, file_path):
+        hwnds = []
+
         def callback(hwnd, hwnds):
             if win32gui.IsWindowVisible(hwnd) and win32gui.IsWindowEnabled(hwnd):
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
@@ -116,15 +124,11 @@ class MidasWindowManager:
                     pass
             return True
 
-        hwnds = []
         win32gui.EnumWindows(callback, hwnds)
-        if hwnds:
-            self.midas_hwnd = hwnds[0]
-        return bool(hwnds)
+        return hwnds
 
     def open_midas_gen_file(self, file_path):
         midas_gen_executable = "C:\\Program Files\\MIDAS\\MODS\\Midas Gen\\MidasGen.exe"
-
         if not os.path.exists(midas_gen_executable):
             print("Midas Gen executable not found.")
             return False
@@ -140,7 +144,6 @@ class MidasWindowManager:
 
         print("Midas Gen opened successfully.")
         time.sleep(10)
-
         return True
 
     def save_original_position_and_size(self):
@@ -159,18 +162,15 @@ class MidasWindowManager:
             success, _ = self.run_window_layout_manager(
                 exe_path, window_title, ini_file
             )
-
             if success:
                 print("Window layout restoration process completed successfully.")
             else:
                 print("Window layout restoration failed or timed out.")
-
         except Exception as e:
             print(f"Failed to set UI position and size: {e}")
 
     def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
         command = [exe_path, window_title, ini_file]
-
         print(f"Executing command: {' '.join(command)}")
         process = subprocess.Popen(
             command,
@@ -188,24 +188,19 @@ class MidasWindowManager:
             if output == "" and process.poll() is not None:
                 break
             if output:
-                output_line = output.strip()
-                print(output_line)
-                output_lines.append(output_line)
+                output_lines.append(output.strip())
+                print(output_lines[-1])
 
-            # Check for timeout
             if time.time() - start_time > timeout:
                 print(f"Timeout after {timeout} seconds. Terminating process.")
                 process.terminate()
                 return False, output_lines
 
-        # Process has finished, check return code
-        rc = process.poll()
-        if rc == 0:
+        if process.poll() == 0:
             print("Process completed successfully.")
             return True, output_lines
         else:
-            error = process.stderr.read()
-            print(f"Error occurred: {error}")
+            print(f"Error occurred: {process.stderr.read()}")
             return False, output_lines
 
     def restore_original_position_and_size(self):
@@ -291,7 +286,6 @@ class OrderSelectionWidget(ctk.CTkToplevel):
 
         scrollbar = ctk.CTkScrollbar(list_frame, command=self.listbox.yview)
         scrollbar.pack(side="right", fill="y")
-
         self.listbox.configure(yscrollcommand=scrollbar.set)
 
         for item in self.checked_items:
@@ -382,7 +376,16 @@ class App(ctk.CTk):
         self.tab_buttons = {}
         self.tabs_content = {}
         self.checkboxes = {}
-        self.checkbox_functions = {
+        self.checkbox_functions = self.get_checkbox_functions()
+        self.configure_gui()
+        self.create_layout()
+        self.show_tab(1)
+        self.json_directory = os.path.join(os.path.dirname(__name__), "json_scripts")
+        self.ensure_json_directory()
+        self.window_manager = MidasWindowManager()
+
+    def get_checkbox_functions(self):
+        return {
             "타입분할(태양광)": self.run_type_division_solar,
             "타입분할(건물)": self.run_type_division_building,
             "건물 / 태양광 통합": self.run_building_solar_integration,
@@ -401,12 +404,6 @@ class App(ctk.CTk):
             "접합부": self.run_joint,
             "안전로프": self.run_safety_rope,
         }
-        self.configure_gui()
-        self.create_layout()
-        self.show_tab(1)
-        self.json_directory = os.path.join(os.path.dirname(__name__), "json_scripts")
-        self.ensure_json_directory()
-        self.window_manager = MidasWindowManager()
 
     def configure_gui(self):
         self.geometry(self.WINDOW_GEOMETRY)
@@ -476,7 +473,6 @@ class App(ctk.CTk):
 
         self.add_log_box(frame)
         self.add_create_button(frame)
-
         return frame
 
     def add_section_label(self, parent, text, y, x=0.05):
@@ -644,16 +640,10 @@ class App(ctk.CTk):
             )
 
     def download_satellite_image(self, address, api_key, zoom="18", size="608x325"):
-        # Get coordinates from address
         lat, lng = self.get_coordinates(address, api_key)
-
-        # Calculate bounding box (this is an approximation and may need adjustment based on zoom level)
-        offset = 0.001 * (
-            21 - int(zoom)
-        )  # Adjust this value to change the size of the border
+        offset = 0.001 * (21 - int(zoom))
         box = f"{lat-offset},{lng-offset}|{lat-offset},{lng+offset}|{lat+offset},{lng+offset}|{lat+offset},{lng-offset}|{lat-offset},{lng-offset}"
 
-        # Construct the URL for Google Static Maps API
         base_url = "https://maps.googleapis.com/maps/api/staticmap?"
         params = {
             "center": f"{lat},{lng}",
@@ -661,25 +651,20 @@ class App(ctk.CTk):
             "size": size,
             "maptype": "satellite",
             "key": api_key,
-            "markers": f"color:red|label:A|{lat},{lng}",  # Add a labeled red marker
-            "path": f"color:0xFFFF00FF|weight:5|{box}",  # Add a yellow border around the address
+            "markers": f"color:red|label:A|{lat},{lng}",
+            "path": f"color:0xFFFF00FF|weight:5|{box}",
         }
 
         url = base_url + "&".join(f"{k}={v}" for k, v in params.items())
-
-        # Send request to Google Static Maps API
         response = requests.get(url)
         if response.status_code != 200:
             raise Exception(
                 f"Failed to download image. Status code: {response.status_code}"
             )
 
-        # Create temp directory if it doesn't exist
         temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
         os.makedirs(temp_dir, exist_ok=True)
-
-        # Save the image
-        filename = os.path.join(temp_dir, f"satellite_image.jpg")
+        filename = os.path.join(temp_dir, "satellite_image.jpg")
         with open(filename, "wb") as f:
             f.write(response.content)
 
@@ -690,10 +675,7 @@ class App(ctk.CTk):
             return
         while True:
             api_key = self.get_satellite_image_info()
-            size = "608x325"
-            zoom = "18"
-
-            self.download_satellite_image(address, api_key, zoom=zoom, size=size)
+            self.download_satellite_image(address, api_key)
 
             if not os.path.exists(self.get_temp_file_path("satellite_image.jpg")):
                 continue
@@ -707,12 +689,12 @@ class App(ctk.CTk):
         else:
             return None
 
-        # 파일 경로에서 주소 추출
-        match = re.search(r'([가-힣]+\s[가-힣]+\s[가-힣]+\s[가-힣]+\s[0-9-]+)', file_path)
+        match = re.search(
+            r"([가-힣]+\s[가-힣]+\s[가-힣]+\s[가-힣]+\s[0-9-]+)", file_path
+        )
         if match:
             address = match.group(1)
-            # 주소에서 불필요한 부분 제거
-            address = re.sub(r'\s*[0-9-]+호.*$', '', address)
+            address = re.sub(r"\s*[0-9-]+호.*$", "", address)
             return address
         else:
             print(f"주소를 찾을 수 없습니다: {file_path}")
@@ -721,22 +703,19 @@ class App(ctk.CTk):
     def run_type_division_solar(self):
         print("타입분할(태양광) 작업 시작")
         try:
-            # self.open_solar_file()
+            # 마이다스 프로그램 실행
+            self.open_solar_file()
 
+            # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
-            time.sleep(5)
-            return
-
-            # Main operations
+            # 마이다스 내부 자료 생성 자동화 시작
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
             self.generate_table()
             self.generate_dummy_image()
             self.generate_boundaries_type()
             self.set_reaction_force_moments()
-
-            # Final cleanup
         finally:
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
