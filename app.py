@@ -15,6 +15,18 @@ import requests
 import re
 
 
+class RedirectText:
+    def __init__(self, text_widget):
+        self.output = text_widget
+
+    def write(self, string):
+        self.output.insert("end", string)
+        self.output.see("end")
+
+    def flush(self):
+        pass
+
+
 class FileHandler:
     @staticmethod
     def extract_purlin_girth_data(file_path):
@@ -106,8 +118,6 @@ class MidasWindowManager:
         hwnds = self._get_hwnds_by_filepath(file_path)
         if hwnds:
             self.midas_hwnd = hwnds[0]
-
-        print(f"Midas Gen hwnds: {self.midas_hwnd}")
         return bool(hwnds)
 
     def _get_hwnds_by_filepath(self, file_path):
@@ -153,10 +163,7 @@ class MidasWindowManager:
         return True
 
     def save_original_position_and_size(self):
-        print(self.midas_hwnd)
         if self.midas_hwnd:
-            print("Midas Gen is open.")
-            print("Saving original position and size.")
             rect = win32gui.GetWindowRect(self.midas_hwnd)
             self.original_position = (rect[0], rect[1])
             self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
@@ -181,7 +188,6 @@ class MidasWindowManager:
 
     def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
         command = [exe_path, window_title, ini_file]
-        print(f"Executing command: {' '.join(command)}")
         try:
             process = subprocess.Popen(
                 command,
@@ -232,10 +238,17 @@ class MidasWindowManager:
                         self.original_size[1],
                     )
             except win32gui.error as e:
-                print(f"Failed to restore original position and size: {e}")
+                pass
+
+    def minimize_window(self):
+        if self.midas_hwnd:
+            win32gui.ShowWindow(self.midas_hwnd, win32con.SW_MINIMIZE)
+
+    def restore_window(self):
+        if self.midas_hwnd:
+            win32gui.ShowWindow(self.midas_hwnd, win32con.SW_RESTORE)
 
     def set_window_position_and_size(self, hwnd, x, y, width, height):
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         win32gui.SetWindowPos(
             hwnd,
             win32con.HWND_TOP,
@@ -243,17 +256,8 @@ class MidasWindowManager:
             y,
             width,
             height,
-            win32con.SWP_NOACTIVATE,
-        )
-        win32gui.SetWindowPos(
-            hwnd,
-            win32con.HWND_BOTTOM,
-            0,
-            0,
-            0,
-            0,
-            win32con.SWP_NOSIZE | win32con.SWP_NOMOVE,
-        )
+            win32con.SWP_SHOWWINDOW,
+        ) 
 
     def close_midas_gen(self):
         if self.midas_hwnd:
@@ -282,6 +286,8 @@ class OrderSelectionWidget(ctk.CTkToplevel):
         self.geometry("500x600")
         self.configure(fg_color="#2b2b2b")
         self.create_widgets()
+        self.grab_set()
+        self.focus_set()
 
     def create_widgets(self):
         title_label = ctk.CTkLabel(
@@ -364,16 +370,18 @@ class OrderSelectionWidget(ctk.CTkToplevel):
             pass
 
     def start_program(self):
+        self.parent.window_manager.minimize_window()
+
         ordered_items = self.listbox.get(0, "end")
-        print("순서:", ordered_items)
+        for item in ordered_items:
+            if item in self.parent.checkbox_functions:
+                try:
+                    self.parent.checkbox_functions[item]()
+                except Exception as e:
+                    print(f"Error in {item}: {str(e)}")
 
-        if not os.path.exists("temp"):
-            os.makedirs("temp")
+        self.parent.window_manager.restore_window()
 
-        for file in os.listdir("temp"):
-            os.remove(os.path.join("temp", file))
-
-        self.parent.run_simple_mouse_tracker(ordered_items)
         self.grab_release()
         self.destroy()
 
@@ -401,6 +409,9 @@ class App(ctk.CTk):
         self.json_directory = os.path.join(os.path.dirname(__name__), "json_scripts")
         self.ensure_json_directory()
         self.window_manager = MidasWindowManager()
+        self.log_redirector = RedirectText(self.log_box)
+        sys.stdout = self.log_redirector
+        sys.stderr = self.log_redirector
 
     def get_checkbox_functions(self):
         return {
@@ -619,7 +630,7 @@ class App(ctk.CTk):
         if not self.window_manager.open_midas_gen_file(solar_file):
             print("Midas Gen 파일이 열리지 않았습니다.")
             return
-        
+
         self.window_manager.save_original_position_and_size()
 
         self.window_manager.set_ui_position_and_size(
@@ -728,8 +739,6 @@ class App(ctk.CTk):
             # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
-            return
-
             # 마이다스 내부 자료 생성 자동화 시작
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
@@ -738,7 +747,6 @@ class App(ctk.CTk):
             self.generate_boundaries_type()
             self.set_reaction_force_moments()
         finally:
-            return
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")
