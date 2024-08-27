@@ -175,38 +175,42 @@ class MidasWindowManager:
             print(f"Failed to set UI position and size: {e}")
 
     def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
-        command = [exe_path, rf'"{window_title}"', rf'"{ini_file}"']
+        command = [exe_path, window_title, ini_file]
         print(f"Executing command: {' '.join(command)}")
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
 
-        start_time = time.time()
-        output_lines = []
-        while True:
-            output = process.stdout.readline()
-            if output == "" and process.poll() is not None:
-                break
-            if output:
-                output_lines.append(output.strip())
-                print(output_lines[-1])
+            start_time = time.time()
+            output_lines = []
+            while True:
+                output = process.stdout.readline()
+                if output == "" and process.poll() is not None:
+                    break
+                if output:
+                    output_lines.append(output.strip())
+                    print(output_lines[-1])
 
-            if time.time() - start_time > timeout:
-                print(f"Timeout after {timeout} seconds. Terminating process.")
-                process.terminate()
+                if time.time() - start_time > timeout:
+                    print(f"Timeout after {timeout} seconds. Terminating process.")
+                    process.terminate()
+                    return False, output_lines
+
+            if process.poll() == 0:
+                print("Process completed successfully.")
+                return True, output_lines
+            else:
+                print(f"Error occurred: {process.stderr.read()}")
                 return False, output_lines
-
-        if process.poll() == 0:
-            print("Process completed successfully.")
-            return True, output_lines
-        else:
-            print(f"Error occurred: {process.stderr.read()}")
-            return False, output_lines
+        except Exception as e:
+            print(f"Subprocess failed: {e}")
+            return False, []
 
     def restore_original_position_and_size(self):
         if self.midas_hwnd and self.original_position and self.original_size:
@@ -611,6 +615,8 @@ class App(ctk.CTk):
         self.window_manager.set_ui_position_and_size(
             self.window_manager.midas_hwnd, "midas_gen.ini"
         )
+
+        time.sleep(5)
 
         self.window_manager.set_window_position_and_size(
             self.window_manager.midas_hwnd, 0, 0, 1280, 768

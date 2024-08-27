@@ -17,6 +17,7 @@ if (A_Args.Length() = 3) {
 } else if (A_Args.Length() >= 2) {
     targetWindow := A_Args[1]
     restoreFile := A_Args[2]
+    isCliMode := true
     GoSub, AutoRestore
 } else {
     GoSub, ShowGUI
@@ -93,14 +94,14 @@ RestoreWindowInfo(file) {
     IniRead, w, %file%, MainWindow, Width, ERROR
     IniRead, h, %file%, MainWindow, Height, ERROR
 
-    if (x = "ERROR" or y = "ERROR" or w = "ERROR" or h = "ERROR") {
+    if ((x = "ERROR" or y = "ERROR" or w = "ERROR" or h = "ERROR") and !isCliMode) {
         MsgBox, 파일에서 창 정보를 읽을 수 없습니다.
         return
     }
 
     ; 현재 창 크기 확인
     WinGetPos, currentX, currentY, currentW, currentH, %targetProgram%
-    
+
     ; 최소 크기 설정 (예: 100x100)
     w := (w < 100) ? 100 : w
     h := (h < 100) ? 100 : h
@@ -158,7 +159,7 @@ FindAndSelectWindow(windowName) {
         }
         return true
     }
-    return false
+return false
 }
 
 CalculateMatchScore(str1, str2) {
@@ -168,7 +169,7 @@ CalculateMatchScore(str1, str2) {
         if (InStr(str1, A_LoopField))
             score += StrLen(A_LoopField)
     }
-    return score
+return score
 }
 
 SaveUIElements(winTitle, file) {
