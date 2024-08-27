@@ -720,8 +720,6 @@ class App(ctk.CTk):
             # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
-            return
-
             # 마이다스 내부 자료 생성 자동화 시작
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
@@ -730,7 +728,6 @@ class App(ctk.CTk):
             self.generate_boundaries_type()
             self.set_reaction_force_moments()
         finally:
-            return
             self.window_manager.restore_original_position_and_size()
             self.window_manager.close_midas_gen()
             print("타입분할(태양광) 작업 완료")
