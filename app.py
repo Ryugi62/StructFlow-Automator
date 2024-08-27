@@ -11,6 +11,8 @@ from tkinter import filedialog, Listbox, TclError
 from dotenv import load_dotenv
 import pandas as pd
 import sys
+import requests
+import re
 
 
 class FileHandler:
@@ -613,19 +615,115 @@ class App(ctk.CTk):
             self.window_manager.midas_hwnd, 0, 0, 1280, 768
         )
 
-    def get_satellite_image(self):
+    def get_satellite_image_info(self):
+        dotenv_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "StructFlow-Automator-Private",
+            ".env",
+        )
+        load_dotenv(dotenv_path)
+
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+        if not api_key:
+            raise ValueError("GOOGLE_MAPS_API_KEY not found in environment variables")
+
+        return api_key
+
+    def get_coordinates(self, address, api_key):
+        base_url = "https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"address": address, "key": api_key}
+        response = requests.get(base_url, params=params)
+        data = response.json()
+
+        if data["status"] == "OK":
+            location = data["results"][0]["geometry"]["location"]
+            return location["lat"], location["lng"]
+        else:
+            raise ValueError(
+                f"Could not find coordinates for the given address. Status: {data['status']}"
+            )
+
+    def download_satellite_image(self, address, api_key, zoom="18", size="608x325"):
+        # Get coordinates from address
+        lat, lng = self.get_coordinates(address, api_key)
+
+        # Calculate bounding box (this is an approximation and may need adjustment based on zoom level)
+        offset = 0.001 * (
+            21 - int(zoom)
+        )  # Adjust this value to change the size of the border
+        box = f"{lat-offset},{lng-offset}|{lat-offset},{lng+offset}|{lat+offset},{lng+offset}|{lat+offset},{lng-offset}|{lat-offset},{lng-offset}"
+
+        # Construct the URL for Google Static Maps API
+        base_url = "https://maps.googleapis.com/maps/api/staticmap?"
+        params = {
+            "center": f"{lat},{lng}",
+            "zoom": zoom,
+            "size": size,
+            "maptype": "satellite",
+            "key": api_key,
+            "markers": f"color:red|label:A|{lat},{lng}",  # Add a labeled red marker
+            "path": f"color:0xFFFF00FF|weight:5|{box}",  # Add a yellow border around the address
+        }
+
+        url = base_url + "&".join(f"{k}={v}" for k, v in params.items())
+
+        # Send request to Google Static Maps API
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to download image. Status code: {response.status_code}"
+            )
+
+        # Create temp directory if it doesn't exist
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        # Save the image
+        filename = os.path.join(temp_dir, f"satellite_image.jpg")
+        with open(filename, "wb") as f:
+            f.write(response.content)
+
+        print(f"Satellite image saved to: {filename}")
+
+    def get_satellite_image(self, address=None):
+        if not address:
+            return
         while True:
-            self.run_json_file("open_satellite_image.json")
+            api_key = self.get_satellite_image_info()
+            size = "608x325"
+            zoom = "18"
+
+            self.download_satellite_image(address, api_key, zoom=zoom, size=size)
+
             if not os.path.exists(self.get_temp_file_path("satellite_image.jpg")):
                 continue
             break
+
+    def get_address(self, key):
+        if key == "sollar":
+            file_path = self.file_entries["태양광"].get()
+        elif key == "building":
+            file_path = self.file_entries["건물"].get()
+        else:
+            return None
+
+        # 파일 경로에서 주소 추출
+        match = re.search(r'([가-힣]+\s[가-힣]+\s[가-힣]+\s[가-힣]+\s[0-9-]+)', file_path)
+        if match:
+            address = match.group(1)
+            # 주소에서 불필요한 부분 제거
+            address = re.sub(r'\s*[0-9-]+호.*$', '', address)
+            return address
+        else:
+            print(f"주소를 찾을 수 없습니다: {file_path}")
+            return None
 
     def run_type_division_solar(self):
         print("타입분할(태양광) 작업 시작")
         try:
             # self.open_solar_file()
 
-            self.get_satellite_image()
+            self.get_satellite_image(address=self.get_address("sollar"))
 
             time.sleep(5)
             return
