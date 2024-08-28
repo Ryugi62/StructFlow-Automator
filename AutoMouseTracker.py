@@ -830,7 +830,7 @@ class MouseTracker(QWidget):
             current_x, current_y = win32api.GetCursorPos()
             screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
 
-            move_direction = 15 if current_y == 0 else -15
+            move_direction = 15 if current_y-15 <= 0 else -15
             new_y = max(0, min(screen_height - 1, current_y + move_direction))
             win32api.SetCursorPos((current_x, new_y))
             time.sleep(0.1)

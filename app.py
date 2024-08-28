@@ -739,10 +739,12 @@ class App(ctk.CTk):
             # 위치도 이미지 생성
             self.get_satellite_image(address=self.get_address("sollar"))
 
-            return
             # 마이다스 내부 자료 생성 자동화 시작
+            self.run_set_display()
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
+
+            return
             self.generate_table()
             self.generate_dummy_image()
             self.generate_boundaries_type()
@@ -864,6 +866,9 @@ class App(ctk.CTk):
             pass
         finally:
             print("안전로프 작업 완료")
+
+    def run_set_display(self):
+        self.run_json_file("display.json")
 
     def run_steel_code_check(self):
         while True:
