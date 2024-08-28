@@ -584,24 +584,34 @@ class AutoMouseTracker:
 
     def set_window_to_bottom(self, hwnd):
         try:
-            # Get the parent window
-            parent_hwnd = win32gui.GetAncestor(hwnd, win32con.GA_ROOTOWNER)
-
-            # Move the window to the bottom of the Z-order
-            win32gui.SetWindowPos(
-                parent_hwnd,
-                win32con.HWND_BOTTOM,
-                0,
-                0,
-                0,
-                0,
-                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
-            )
-            logging.info(f"Window {hwnd} moved to bottom")
+            # Get the top-level parent window
+            top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+            
+            # Move all related windows to the bottom
+            self.set_window_and_children_to_bottom(top_parent)
+            
+            logging.info(f"Window {hwnd} and all related windows moved to bottom")
             return True
         except Exception as e:
-            logging.error(f"Failed to set window to bottom: {e}")
+            logging.error(f"Failed to set windows to bottom: {e}")
             return False
+
+    def set_window_and_children_to_bottom(self, hwnd):
+        # Move the current window to the bottom
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_BOTTOM,
+            0, 0, 0, 0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+        )
+        
+        # Recursively set all child windows to bottom
+        def enum_child_windows(child_hwnd, _):
+            self.set_window_and_children_to_bottom(child_hwnd)
+            return True
+        
+        win32gui.EnumChildWindows(hwnd, enum_child_windows, None)
+
 
 
 if __name__ == "__main__":

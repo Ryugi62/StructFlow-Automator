@@ -749,6 +749,9 @@ class MouseTracker(QWidget):
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
+        # Hide the window by moving it to the bottom
+        self.set_window_to_bottom(hwnd)
+
         # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         for target_image_info in event["image"].get("target_paths", []):
             if check_image_match(
@@ -1216,6 +1219,39 @@ class MouseTracker(QWidget):
         dialog = EventSettingsDialog(event, self)
         if dialog.exec_() == QDialog.Accepted:
             self.status_bar.showMessage(f"Event settings updated for index {index}")
+
+    def set_window_to_bottom(self, hwnd):
+        try:
+            # Get the top-level parent window
+            top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+
+            # Move all related windows to the bottom
+            self.set_window_and_children_to_bottom(top_parent)
+
+            logging.info(f"Window {hwnd} and all related windows moved to bottom")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to set windows to bottom: {e}")
+            return False
+
+    def set_window_and_children_to_bottom(self, hwnd):
+        # Move the current window to the bottom
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_BOTTOM,
+            0,
+            0,
+            0,
+            0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+        )
+
+        # Recursively set all child windows to bottom
+        def enum_child_windows(child_hwnd, _):
+            self.set_window_and_children_to_bottom(child_hwnd)
+            return True
+
+        win32gui.EnumChildWindows(hwnd, enum_child_windows, None)
 
 
 if __name__ == "__main__":
