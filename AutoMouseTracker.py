@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QSpinBox,
     QComboBox,
+    QAbstractItemView,
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
@@ -377,6 +378,9 @@ class MouseTracker(QWidget):
         self.stop_button = self.create_button(
             "Emergency Stop", "icons/stop.png", self.emergency_stop
         )
+        self.delete_button = self.create_button(
+            "Delete Selected Event", "icons/delete.png", self.delete_selected_event
+        )
 
         self.layout.addWidget(self.record_button, 5, 0)
         self.layout.addWidget(self.pause_button, 5, 1)
@@ -385,7 +389,8 @@ class MouseTracker(QWidget):
         self.layout.addWidget(self.play_button, 7, 0)
         self.layout.addWidget(self.add_custom_image_button, 7, 1)
         self.layout.addWidget(self.settings_button, 8, 0, 1, 2)
-        self.layout.addWidget(self.stop_button, 9, 0, 1, 2)
+        self.layout.addWidget(self.delete_button, 9, 0, 1, 2)
+        self.layout.addWidget(self.stop_button, 10, 0, 1, 2)
 
     def create_button(self, text, icon_path, callback):
         button = QPushButton(text)
@@ -398,17 +403,17 @@ class MouseTracker(QWidget):
         self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(50)
         self.speed_slider.valueChanged.connect(self.update_speed_factor)
-        self.layout.addWidget(self.speed_slider, 10, 0, 1, 2)
+        self.layout.addWidget(self.speed_slider, 11, 0, 1, 2)
 
     def create_progress_bar(self):
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.layout.addWidget(self.progress_bar, 11, 0, 1, 2)
+        self.layout.addWidget(self.progress_bar, 12, 0, 1, 2)
 
     def create_status_bar(self):
         self.status_bar = QStatusBar()
-        self.layout.addWidget(self.status_bar, 12, 0, 1, 2)
+        self.layout.addWidget(self.status_bar, 13, 0, 1, 2)
 
     def create_menu_bar(self):
         self.menu_bar = QMenuBar()
@@ -656,12 +661,19 @@ class MouseTracker(QWidget):
             self.status_bar.showMessage("Recording resumed")
 
     def save_script(self):
+        selected_events = [
+            self.click_events[i]
+            for i in range(self.event_list.count())
+            if self.event_list.item(i).checkState() == Qt.Checked
+        ]
+        if not selected_events:
+            selected_events = self.click_events
         filename, _ = QFileDialog.getSaveFileName(
             self, "Save Script", "", "JSON Files (*.json);;All Files (*)"
         )
         if filename:
             with open(filename, "w") as file:
-                json.dump(self.click_events, file)
+                json.dump(selected_events, file)
             self.status_bar.showMessage(f"Script saved to {filename}")
 
     def load_script(self):
@@ -680,6 +692,7 @@ class MouseTracker(QWidget):
                 list_item.setCheckState(Qt.Unchecked)
                 self.event_list.addItem(list_item)
             self.status_bar.showMessage(f"Script loaded from {filename}")
+        self.setup_drag_drop()
 
     def play_script(self):
         if not self.click_events:
@@ -1252,6 +1265,29 @@ class MouseTracker(QWidget):
             return True
 
         win32gui.EnumChildWindows(hwnd, enum_child_windows, None)
+
+    def setup_drag_drop(self):
+        self.event_list.setDragDropMode(QAbstractItemView.InternalMove)
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+        new_order = [
+            self.event_list.row(self.event_list.item(i))
+            for i in range(self.event_list.count())
+        ]
+        self.click_events = [self.click_events[i] for i in new_order]
+
+    def delete_selected_event(self):
+        selected_items = self.event_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(
+                self, "No Selection", "Please select an event to delete."
+            )
+            return
+        selected_item = selected_items[0]
+        index = self.event_list.row(selected_item)
+        self.event_list.takeItem(index)
+        del self.click_events[index]
 
 
 if __name__ == "__main__":
