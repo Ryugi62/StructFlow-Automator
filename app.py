@@ -750,6 +750,7 @@ class App(ctk.CTk):
 
             # 마이다스 내부 자료 생성 자동화 시작
             self.run_set_display()
+            self.run_calculate()
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
             self.generate_table()
@@ -878,6 +879,9 @@ class App(ctk.CTk):
 
     def run_set_display(self):
         self.run_json_file("display.json")
+
+    def run_calculate(self):
+        self.run_json_file("calculate.json")
 
     def run_steel_code_check(self):
         while True:
