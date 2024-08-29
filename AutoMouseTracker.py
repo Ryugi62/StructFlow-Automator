@@ -661,9 +661,7 @@ class MouseTracker(QWidget):
         else:
             self.recording = False
             self.record_button.setText("Start Recording")
-            self.pause_button.setEnabled(
-                False
-            )  # 녹화가 중지되면 일시 중지 버튼 비활성화
+            self.pause_button.setEnabled(False)
             self.status_bar.showMessage("Recording stopped")
 
     def toggle_pause(self):

@@ -105,7 +105,7 @@ class AutoMouseTracker:
             ]:
                 hwnd = self.find_target_hwnd(event)
                 image_present = self.check_image_presence(event, hwnd)
-                print(image_present)
+
                 if (
                     event["condition"] == "이미지가 있으면 스킵" and not image_present
                 ) or (event["condition"] == "이미지가 없으면 스킵" and image_present):
@@ -174,10 +174,11 @@ class AutoMouseTracker:
             event["button"],
         )
 
+        time.sleep(MINIMUM_CLICK_DELAY)
+
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
-
 
         return True
 
