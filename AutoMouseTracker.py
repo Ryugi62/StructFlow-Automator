@@ -131,8 +131,7 @@ class ImageCaptureThread(QThread):
     def capture_window_image(self, hwnd):
         try:
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-            width = right - left
-            height = bottom - top
+            width, height = right - left, bottom - top
 
             hwndDC = win32gui.GetWindowDC(hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
@@ -901,18 +900,21 @@ class MouseTracker(QWidget):
         if not target_image_paths:
             return False
 
-        current_image = self.capture_thread.capture_window_image(hwnd)
+        current_image = self.capture_window_image(hwnd)
         if current_image is None:
             return False
 
+        # 현재 이미지를 그레이스케일로 변환
+        current_image_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
+
         similarity_threshold = event.get("similarity_threshold", 0.6)
         for target_image_info in target_image_paths:
-            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_COLOR)
+            target_image = cv2.imread(target_image_info["path"], cv2.IMREAD_GRAYSCALE)
             if target_image is None:
                 continue
 
             result = cv2.matchTemplate(
-                current_image, target_image, cv2.TM_CCOEFF_NORMED
+                current_image_gray, target_image, cv2.TM_CCOEFF_NORMED
             )
             _, max_val, _, _ = cv2.minMaxLoc(result)
 
