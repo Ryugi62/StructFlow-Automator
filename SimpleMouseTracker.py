@@ -128,57 +128,56 @@ class AutoMouseTracker:
 
     def process_single_event(self, event):
         hwnd = self.find_target_hwnd(event)
-        if hwnd is None:
+        if hwnd is None or hwnd == 0:
             logging.warning(f"Failed to find hwnd for event: {event}")
-            return False
-
-        if not self.check_conditions(event, hwnd):
             return False
 
         # Hide the window by moving it to the bottom
         self.set_window_to_bottom(hwnd)
-        time.sleep(MINIMUM_CLICK_DELAY)
+
+        # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
+        if not self.check_image_presence(event, hwnd):
+            logging.info("No image match found.")
+            return False
 
         click_delay = event.get("click_delay", 0)
         if click_delay > 0:
-            logging.info(f"Waiting for {click_delay} seconds...")
-            time.sleep(click_delay)
+            time.sleep(click_delay / 1000)
 
         if event.get("auto_update_target", False):
-            self.update_target_position(event, hwnd)
+            img = self.capture_window_image(hwnd)
+            if img is not None:
+                for image_path in event.get("image_paths", []):
+                    target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+                    if target_image is not None:
+                        result = cv2.matchTemplate(
+                            img, target_image, cv2.TM_CCOEFF_NORMED
+                        )
+                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
 
-        success = False
-        attempt = 0
-        while not success and attempt < MAX_RETRY_COUNT:
-            # Check if the mouse button is pressed or the mouse is moving
+                        print(f"Max value: {max_val}, location: {max_loc}")
 
-            success = self.send_click_event(
-                event["relative_x"],
-                event["relative_y"],
-                hwnd,
-                event["move_cursor"],
-                event.get("double_click", False),
-                event["button"],
-            )
-            if not success:
-                logging.warning(
-                    f"Click event failed, retrying... (Attempt {attempt + 1})"
-                )
-                attempt += 1
-                time.sleep(1)  # Wait before retrying
+                        if max_val >= event.get("similarity_threshold", 0.6):
+                            event["relative_x"], event["relative_y"] = max_loc
+                            break
 
-        if not success:
-            logging.error("Click event failed after maximum retries.")
-            return False
+        # 클릭 오프셋 적용
+        click_x = event["relative_x"] + event.get("click_offset_x", 0)
+        click_y = event["relative_y"] + event.get("click_offset_y", 0)
+
+        self.send_click_event(
+            click_x,
+            click_y,
+            hwnd,
+            event["move_cursor"],
+            event.get("double_click", False),
+            event["button"],
+        )
 
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
-        # 추가된 부분: 클릭 후 이미지 확인
-        if not self.verify_click(event, hwnd):
-            logging.error("Click verification failed.")
-            return False
 
         return True
 

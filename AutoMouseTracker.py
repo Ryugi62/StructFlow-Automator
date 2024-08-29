@@ -215,6 +215,20 @@ class EventSettingsDialog(QDialog):
         )
         layout.addWidget(self.auto_update_target_checkbox)
 
+        # 새로운 x, y 오프셋 입력 필드 추가
+        offset_layout = QHBoxLayout()
+        offset_layout.addWidget(QLabel("Click Offset X:"))
+        self.offset_x_spinbox = QSpinBox()
+        self.offset_x_spinbox.setRange(-1000, 1000)
+        self.offset_x_spinbox.setValue(self.event.get("click_offset_x", 0))
+        offset_layout.addWidget(self.offset_x_spinbox)
+        offset_layout.addWidget(QLabel("Click Offset Y:"))
+        self.offset_y_spinbox = QSpinBox()
+        self.offset_y_spinbox.setRange(-1000, 1000)
+        self.offset_y_spinbox.setValue(self.event.get("click_offset_y", 0))
+        offset_layout.addWidget(self.offset_y_spinbox)
+        layout.addLayout(offset_layout)
+
         self.image_list = QListWidget()
         self.load_image_button = QPushButton("Load Image")
         self.load_image_button.clicked.connect(self.load_image)
@@ -289,6 +303,8 @@ class EventSettingsDialog(QDialog):
         self.event["double_click"] = self.double_click_checkbox.isChecked()
         self.event["ignore_pos_size"] = self.ignore_pos_size_checkbox.isChecked()
         self.event["auto_update_target"] = self.auto_update_target_checkbox.isChecked()
+        self.event["click_offset_x"] = self.offset_x_spinbox.value()
+        self.event["click_offset_y"] = self.offset_y_spinbox.value()
         self.event["keyboard_input"] = self.keyboard_input.text()
         self.event["condition"] = self.condition_combo.currentText()
         self.event["repeat_count"] = self.repeat_spinbox.value()
@@ -799,9 +815,13 @@ class MouseTracker(QWidget):
                             event["relative_x"], event["relative_y"] = max_loc
                             break
 
+        # 클릭 오프셋 적용
+        click_x = event["relative_x"] + event.get("click_offset_x", 0)
+        click_y = event["relative_y"] + event.get("click_offset_y", 0)
+
         self.send_click_event(
-            event["relative_x"],
-            event["relative_y"],
+            click_x,
+            click_y,
             hwnd,
             event["move_cursor"],
             event.get("double_click", False),
@@ -830,7 +850,7 @@ class MouseTracker(QWidget):
             current_x, current_y = win32api.GetCursorPos()
             screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
 
-            move_direction = 15 if current_y-15 <= 0 else -15
+            move_direction = 15 if current_y - 15 <= 0 else -15
             new_y = max(0, min(screen_height - 1, current_y + move_direction))
             win32api.SetCursorPos((current_x, new_y))
             time.sleep(0.1)
