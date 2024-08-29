@@ -730,9 +730,18 @@ class App(ctk.CTk):
             print(f"주소를 찾을 수 없습니다: {file_path}")
             return None
 
+    def clear_temp_dir(self):
+        # clear temp dir
+        temp_dir = os.path.join(os.path.dirname(__file__), "temp")
+        for file in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, file)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+
     def run_type_division_solar(self):
-        print("타입분할(태양광) 작업 시작")
         try:
+            self.clear_temp_dir()
+
             # 마이다스 프로그램 실행
             self.open_solar_file()
 
@@ -743,11 +752,11 @@ class App(ctk.CTk):
             self.run_set_display()
             self.run_steel_code_check()
             self.run_cold_formed_steel_check()
-
-            return
             self.generate_table()
             self.generate_dummy_image()
             self.generate_boundaries_type()
+
+            return
             self.set_reaction_force_moments()
         finally:
             return
@@ -909,11 +918,14 @@ class App(ctk.CTk):
 
     def generate_table(self):
         while True:
-            self.clear_clipboard()
-            self.run_json_file("table.json")
+            try:
+                self.clear_clipboard()
+                self.run_json_file("create_table.json")
 
-            if not self.save_clipboard_to_file("solar_table.txt"):
-                continue
+                if not self.save_clipboard_to_file("solar_table.txt"):
+                    continue
+            finally:
+                self.run_json_file("close_table.json")
             break
 
     def generate_dummy_image(self):
