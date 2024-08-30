@@ -163,10 +163,14 @@ class MidasWindowManager:
         return True
 
     def save_original_position_and_size(self):
+        print(f"self.mmidas_hwnd: {self.midas_hwnd}")
+
         if self.midas_hwnd:
             rect = win32gui.GetWindowRect(self.midas_hwnd)
             self.original_position = (rect[0], rect[1])
             self.original_size = (rect[2] - rect[0], rect[3] - rect[1])
+
+            print(f"Original position: {self.original_position}")
 
     def set_ui_position_and_size(self, hwnd, ini_file):
         try:
@@ -631,15 +635,23 @@ class App(ctk.CTk):
             print("Midas Gen 파일이 열리지 않았습니다.")
             return
 
+        print("Midas Gen 파일이 열렸습니다.")
+
         self.window_manager.save_original_position_and_size()
+
+        print("save_original_position_and_size")
 
         self.window_manager.set_ui_position_and_size(
             self.window_manager.midas_hwnd, "midas_gen.ini"
         )
 
+        print("set_ui_position_and_size")
+
         self.window_manager.set_window_position_and_size(
             self.window_manager.midas_hwnd, 50, 50, 1800, 930
         )
+
+        print("set_window_position_and_size")
 
     def get_satellite_image_info(self):
         dotenv_path = os.path.join(
@@ -749,6 +761,7 @@ class App(ctk.CTk):
             self.get_satellite_image(address=self.get_address("sollar"))
 
             # 마이다스 내부 자료 생성 자동화 시작
+            self.run_close_notice()
             self.run_set_display()
             self.run_calculate()
             self.run_steel_code_check()
@@ -876,6 +889,9 @@ class App(ctk.CTk):
             pass
         finally:
             print("안전로프 작업 완료")
+
+    def run_close_notice(self):
+        self.run_json_file("close_notice.json")
 
     def run_set_display(self):
         self.run_json_file("display.json")
