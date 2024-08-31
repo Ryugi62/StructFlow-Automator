@@ -14,9 +14,6 @@ import win32ui
 import threading
 from logging.handlers import RotatingFileHandler
 from ctypes import windll
-import ctypes
-import ctypes.wintypes
-
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -61,9 +58,6 @@ class AutoMouseTracker:
         self.running_script = False
         self.load_script()
         self.lock = threading.Lock()
-        self.blocked_hwnd = None
-        self.old_win_proc = None
-        self.new_win_proc = None
 
     def load_script(self):
         try:
@@ -138,14 +132,8 @@ class AutoMouseTracker:
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
-        # 최상위 부모 창을 찾습니다.
-        top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
-
-        # 최상위 부모 창에 대해 마우스 이벤트를 차단합니다.
-        self.block_mouse_events(top_parent)
-
-        # 창을 백그라운드로 보냅니다.
-        self.set_window_to_bottom(top_parent)
+        # Hide the window by moving it to the bottom
+        self.set_window_to_bottom(hwnd)
 
         # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         if not self.check_image_presence(event, hwnd):
@@ -192,39 +180,7 @@ class AutoMouseTracker:
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
-        self.unblock_mouse_events()
         return True
-
-    def block_mouse_events(self, hwnd):
-        if self.blocked_hwnd is not None:
-            self.unblock_mouse_events()
-
-        self.blocked_hwnd = hwnd
-        self.old_win_proc = ctypes.windll.user32.GetWindowLongPtrW(hwnd, -4)
-        self.new_win_proc = ctypes.WINFUNCTYPE(
-            ctypes.c_long,
-            ctypes.wintypes.HWND,
-            ctypes.wintypes.UINT,
-            ctypes.wintypes.WPARAM,
-            ctypes.wintypes.LPARAM,
-        )(self.window_proc)
-        ctypes.windll.user32.SetWindowLongPtrW(hwnd, -4, self.new_win_proc)
-
-    def unblock_mouse_events(self):
-        if self.blocked_hwnd is not None:
-            ctypes.windll.user32.SetWindowLongPtrW(
-                self.blocked_hwnd, -4, self.old_win_proc
-            )
-            self.blocked_hwnd = None
-            self.old_win_proc = None
-            self.new_win_proc = None
-
-    def window_proc(self, hwnd, msg, wparam, lparam):
-        if msg >= win32con.WM_MOUSEFIRST and msg <= win32con.WM_MOUSELAST:
-            return 0  # 모든 마우스 이벤트를 무시합니다.
-        return ctypes.windll.user32.CallWindowProcW(
-            self.old_win_proc, hwnd, msg, wparam, lparam
-        )
 
     def verify_click(self, event, hwnd):
         time.sleep(1)  # 이미지 갱신을 위해 잠시 대기
@@ -629,12 +585,15 @@ class AutoMouseTracker:
             lParam = win32api.MAKELONG(screen_x, screen_y)
         return lParam
 
-    def set_window_to_bottom(self, top_parent):
+    def set_window_to_bottom(self, hwnd):
         try:
+            # Get the top-level parent window
+            top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+
             # Move all related windows to the bottom
             self.set_window_and_children_to_bottom(top_parent)
 
-            logging.info(f"Window {top_parent} and all related windows moved to bottom")
+            logging.info(f"Window {hwnd} and all related windows moved to bottom")
             return True
         except Exception as e:
             logging.error(f"Failed to set windows to bottom: {e}")

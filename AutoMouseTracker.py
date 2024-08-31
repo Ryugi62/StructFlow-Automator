@@ -42,9 +42,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QPixmap, QImage, QIcon
-import ctypes
-import ctypes.wintypes
-
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -324,10 +321,6 @@ class MouseTracker(QWidget):
         self.init_ui()
         self.init_listeners()
         self.init_capture_thread()
-        self.blocked_hwnd = None
-        self.old_win_proc = None
-        self.new_win_proc = None
-
 
     def init_variables(self):
         self.current = (0, 0)
@@ -782,14 +775,8 @@ class MouseTracker(QWidget):
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
-        # 최상위 부모 창을 찾습니다.
-        top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
-
-        # 최상위 부모 창에 대해 마우스 이벤트를 차단합니다.
-        self.block_mouse_events(top_parent)
-
-        # 창을 백그라운드로 보냅니다.
-        self.set_window_to_bottom(top_parent)
+        # Hide the window by moving it to the bottom
+        self.set_window_to_bottom(hwnd)
 
         # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         for target_image_info in event["image"].get("target_paths", []):
@@ -802,7 +789,6 @@ class MouseTracker(QWidget):
                 break
         else:
             logging.info("No image match found.")
-            self.unblock_mouse_events()
             return False
 
         click_delay = event.get("click_delay", 0)
@@ -848,31 +834,7 @@ class MouseTracker(QWidget):
             self.update_image_label(img)
         self.capture_thread.hwnd = hwnd
 
-        self.unblock_mouse_events()
         return True
-
-    def block_mouse_events(self, hwnd):
-        if self.blocked_hwnd is not None:
-            self.unblock_mouse_events()
-
-        self.blocked_hwnd = hwnd
-        self.old_win_proc = ctypes.windll.user32.GetWindowLongPtrW(hwnd, -4)
-        self.new_win_proc = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.wintypes.HWND, 
-                                               ctypes.wintypes.UINT, ctypes.wintypes.WPARAM, 
-                                               ctypes.wintypes.LPARAM)(self.window_proc)
-        ctypes.windll.user32.SetWindowLongPtrW(hwnd, -4, self.new_win_proc)
-
-    def unblock_mouse_events(self):
-        if self.blocked_hwnd is not None:
-            ctypes.windll.user32.SetWindowLongPtrW(self.blocked_hwnd, -4, self.old_win_proc)
-            self.blocked_hwnd = None
-            self.old_win_proc = None
-            self.new_win_proc = None
-
-    def window_proc(self, hwnd, msg, wparam, lparam):
-        if msg >= win32con.WM_MOUSEFIRST and msg <= win32con.WM_MOUSELAST:
-            return 0  # 모든 마우스 이벤트를 무시합니다.
-        return ctypes.windll.user32.CallWindowProcW(self.old_win_proc, hwnd, msg, wparam, lparam)
 
     def send_click_event(
         self, relative_x, relative_y, hwnd, move_cursor, double_click, button
@@ -1184,7 +1146,6 @@ class MouseTracker(QWidget):
         self.speed_factor = max(0.1, value / 50.0)
 
     def closeEvent(self, event):
-        self.unblock_mouse_events()  # 프로그램 종료 시 차단 해제
         if self.capture_thread is not None:
             self.capture_thread.stop()
         self.mouse_listener.stop()
@@ -1292,12 +1253,15 @@ class MouseTracker(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             self.status_bar.showMessage(f"Event settings updated for index {index}")
 
-    def set_window_to_bottom(self, top_parent):
+    def set_window_to_bottom(self, hwnd):
         try:
+            # Get the top-level parent window
+            top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+
             # Move all related windows to the bottom
             self.set_window_and_children_to_bottom(top_parent)
 
-            logging.info(f"Window {top_parent} and all related windows moved to bottom")
+            logging.info(f"Window {hwnd} and all related windows moved to bottom")
             return True
         except Exception as e:
             logging.error(f"Failed to set windows to bottom: {e}")
