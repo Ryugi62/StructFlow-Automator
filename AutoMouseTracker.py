@@ -809,7 +809,16 @@ class MouseTracker(QWidget):
                         print(f"Max value: {max_val}, location: {max_loc}")
 
                         if max_val >= event.get("similarity_threshold", 0.6):
-                            event["relative_x"], event["relative_y"] = max_loc
+                            x, y, width, height = (
+                                max_loc[0],
+                                max_loc[1],
+                                target_image.shape[1],
+                                target_image.shape[0],
+                            )
+                            event["relative_x"], event["relative_y"] = (
+                                x + width // 2,
+                                y + height // 2,
+                            )
                             break
 
         # 클릭 오프셋 적용
