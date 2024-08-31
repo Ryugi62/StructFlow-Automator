@@ -135,6 +135,8 @@ class AutoMouseTracker:
         # Hide the window by moving it to the bottom
         self.set_window_to_bottom(hwnd)
 
+        time.sleep(MINIMUM_CLICK_DELAY)
+
         # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         if not self.check_image_presence(event, hwnd):
             logging.info("No image match found.")
@@ -173,8 +175,6 @@ class AutoMouseTracker:
             event.get("double_click", False),
             event["button"],
         )
-
-        time.sleep(MINIMUM_CLICK_DELAY)
 
         keyboard_input = event.get("keyboard_input", "")
         if keyboard_input:
