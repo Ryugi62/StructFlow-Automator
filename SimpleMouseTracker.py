@@ -94,6 +94,14 @@ class InputBlocker:
         )
         win32gui.ShowWindow(self.overlay_hwnd, win32con.SW_SHOW)
 
+        # 차단창을 클릭할 hwnd보다 높은 z-order로 설정
+        win32gui.SetWindowPos(
+            self.overlay_hwnd,
+            self.hwnd,  # 클릭할 창의 위에 위치하도록 설정
+            0, 0, 0, 0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+        )
+
         while not self.stop_event.is_set():
             win32gui.PumpWaitingMessages()
 
@@ -139,14 +147,14 @@ class AutoMouseTracker:
         def process_event(index):
             if not self.running_script:
                 logging.info("Script playback stopped.")
-                self.script_completed.set()
+                self.script_completed.set()  # Ensure the event is set here
                 return
 
             if index >= len(self.script):
                 self.running_script = False
                 self.progress_bar_value = len(self.script)
                 logging.info("Script playback completed.")
-                self.script_completed.set()
+                self.script_completed.set()  # Ensure the event is set here
                 return
 
             event = self.script[index]
@@ -197,13 +205,14 @@ class AutoMouseTracker:
 
         top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
 
-        self.set_window_to_bottom(top_parent)
 
         blocker = InputBlocker(top_parent)
         self.active_blockers.append(blocker)
         blocker_thread = threading.Thread(target=blocker.create_overlay)
         blocker_thread.start()
 
+        self.set_window_to_bottom(top_parent)
+        
         time.sleep(MINIMUM_CLICK_DELAY)
 
         if not self.check_image_presence(event, hwnd):
@@ -674,6 +683,7 @@ class AutoMouseTracker:
     def wait_for_completion(self):
         self.script_completed.wait()
 
+    # Cleanup function
     def cleanup(self):
         for blocker in self.active_blockers:
             blocker.stop()
@@ -681,7 +691,7 @@ class AutoMouseTracker:
         if self.capture_thread:
             self.capture_thread.join()
         logging.shutdown()
-
+        self.script_completed.set()  # Ensure the event is set to allow exit
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -692,8 +702,9 @@ if __name__ == "__main__":
     tracker = AutoMouseTracker(script_path)
     tracker.play_script()
 
+    # Main program execution at the end
     tracker.wait_for_completion()
     tracker.cleanup()
     print("Script execution completed. Exiting program.")
-    time.sleep(1)  # 1초 대기
-    sys.exit(0)
+    time.sleep(1)
+    os._exit(0)  # Force exit if sys.exit does not work
