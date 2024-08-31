@@ -46,23 +46,36 @@ configure_logging()
 
 
 class InputBlocker:
-    def __init__(self, hwnd, target_hwnd):
+    def __init__(self, hwnd):
         self.hwnd = hwnd
         self.overlay_hwnd = None
         self.stop_event = threading.Event()
         self.class_name = "OverlayWindowClass"
-        self.target_hwnd = target_hwnd
         self.update_thread = None
 
     def create_overlay(self):
         def overlay_window_proc(hwnd, msg, wparam, lparam):
             if msg == win32con.WM_CLOSE:
                 win32gui.DestroyWindow(hwnd)
+            elif msg in [
+                win32con.WM_LBUTTONDOWN,
+                win32con.WM_RBUTTONDOWN,
+                win32con.WM_MBUTTONDOWN,
+                win32con.WM_LBUTTONUP,
+                win32con.WM_RBUTTONUP,
+                win32con.WM_MBUTTONUP,
+                win32con.WM_MOUSEMOVE,
+                win32con.WM_MOUSEWHEEL,
+                win32con.WM_KEYDOWN,
+                win32con.WM_KEYUP,
+            ]:
+                return 0  # 사용자 입력 메시지를 명확히 차단
             return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = overlay_window_proc
         wc.lpszClassName = self.class_name
+        wc.hCursor = win32gui.LoadCursor(0, win32con.IDC_ARROW)
 
         try:
             win32gui.RegisterClass(wc)
@@ -72,16 +85,18 @@ class InputBlocker:
 
         rect = win32gui.GetWindowRect(self.hwnd)
         try:
-            # 차단 창 생성
+            # 오버레이 창을 생성할 때 WS_EX_LAYERED 속성을 추가해야 합니다.
             self.overlay_hwnd = win32gui.CreateWindowEx(
-                win32con.WS_EX_LAYERED | win32con.WS_EX_NOACTIVATE,
+                win32con.WS_EX_LAYERED
+                | win32con.WS_EX_TOPMOST
+                | win32con.WS_EX_NOACTIVATE,
                 self.class_name,
                 "Overlay",
                 win32con.WS_POPUP,
-                rect[0],
-                rect[1],
-                rect[2] - rect[0],
-                rect[3] - rect[1],
+                rect[0] - 5,
+                rect[1] - 5,
+                rect[2] - rect[0] + 10,
+                rect[3] - rect[1] + 10,
                 0,
                 0,
                 0,
@@ -91,14 +106,17 @@ class InputBlocker:
             logging.error(f"Failed to create overlay window: {e}")
             return
 
-        # 차단 창의 배경색을 노란색으로 설정하고 투명도를 50%로 설정
+        # 노란색 설정 (RGB: 255, 255, 0)
         yellow_color = win32api.RGB(255, 255, 0)
+
+        # SetLayeredWindowAttributes 호출 시 오버레이 창이 WS_EX_LAYERED 속성을 가지고 있어야 합니다.
         win32gui.SetLayeredWindowAttributes(
             self.overlay_hwnd,
             yellow_color,
-            128,
+            128,  # 알파값 (0-255, 여기서는 50% 투명도)
             win32con.LWA_COLORKEY | win32con.LWA_ALPHA,
         )
+
         win32gui.ShowWindow(self.overlay_hwnd, win32con.SW_SHOW)
 
         # "blocked" 텍스트 그리기
@@ -118,12 +136,19 @@ class InputBlocker:
         )
         win32gui.ReleaseDC(self.overlay_hwnd, hdc)
 
-        # 초기 z-order 설정
-        self.update_z_order()
-
-        # z-order 업데이트를 위한 스레드 시작
         self.update_thread = threading.Thread(target=self.update_z_order_loop)
         self.update_thread.start()
+
+        # 해당 input blocker의 z-order를 hwnd_bottom으로 이동시킵니다.
+        win32gui.SetWindowPos(
+            self.overlay_hwnd,
+            win32con.HWND_BOTTOM,
+            0,
+            0,
+            0,
+            0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+        )
 
         while not self.stop_event.is_set():
             win32gui.PumpWaitingMessages()
@@ -131,19 +156,65 @@ class InputBlocker:
     def update_z_order_loop(self):
         while not self.stop_event.is_set():
             self.update_z_order()
-            time.sleep(0.5)
+            time.sleep(0.1)  # 업데이트 주기를 0.1초로 늘림
+
+    def is_hwnd_bottom(self, hwnd):
+        """
+        제공된 hwnd가 Z-order의 HWND_BOTTOM인지 확인합니다.
+        """
+        # 가장 아래에 있는 창을 가져옵니다.
+        bottom_hwnd = win32gui.GetWindow(win32gui.GetDesktopWindow(), win32con.GW_CHILD)
+
+        # bottom_hwnd가 None이면 창이 없는 경우이므로 종료
+        if bottom_hwnd == 0:
+            print("There are no windows.")
+            return False
+
+        # Z-order에서 가장 아래에 있는 창을 탐색
+        while bottom_hwnd:
+            next_hwnd = win32gui.GetWindow(bottom_hwnd, win32con.GW_HWNDNEXT)
+            if next_hwnd == 0:  # 더 이상 아래로 갈 창이 없으면 가장 아래 창임
+                break
+            bottom_hwnd = next_hwnd
+
+        # 가장 아래에 있는 hwnd와 제공된 hwnd를 비교
+        if hwnd == bottom_hwnd:
+            print(f"hwnd {hwnd} is at HWND_BOTTOM.")
+            return True
+        else:
+            print(f"hwnd {hwnd} is NOT at HWND_BOTTOM.")
+            return False
 
     def update_z_order(self):
         if (
             self.overlay_hwnd
             and win32gui.IsWindow(self.overlay_hwnd)
-            and win32gui.IsWindow(self.target_hwnd)
+            and win32gui.IsWindow(self.hwnd)
         ):
             try:
-                # 차단 창을 target_hwnd 바로 위에 위치시킴
+                # 만약 self.hwnd의 z-order가 HWND_BOTTOM이 아니라면, HWND_BOTTOM으로 이동시킵니다.
+                if (
+                    self.is_hwnd_bottom(self.hwnd)
+                    or self.is_hwnd_bottom(self.overlay_hwnd)
+                ):
+                    print("Overlay window z-order is already at the bottom.")
+                    return
+
+                # self.overlay_hwnd를 win32con.HWND_BOTTOM으로 이동시킵니다.
+                # win32gui.SetWindowPos(
+                #     self.overlay_hwnd,
+                #     win32con.HWND_BOTTOM,
+                #     0,
+                #     0,
+                #     0,
+                #     0,
+                #     win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+                # )
+
+                # self.hwnd도 win32con.HWND_BOTTOM으로 이동시킵니다.
                 win32gui.SetWindowPos(
-                    self.overlay_hwnd,
-                    self.target_hwnd,
+                    self.hwnd,
+                    win32con.HWND_BOTTOM,
                     0,
                     0,
                     0,
@@ -228,9 +299,9 @@ class AutoMouseTracker:
                 hwnd = self.find_target_hwnd(event)
                 image_present = self.check_image_presence(event, hwnd)
 
-                if (
-                    event["condition"] == "이미지가 있으면 스킵" and image_present
-                ) or (event["condition"] == "이미지가 없으면 스킵" and not  image_present):
+                if (event["condition"] == "이미지가 있으면 스킵" and image_present) or (
+                    event["condition"] == "이미지가 없으면 스킵" and not image_present
+                ):
                     logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
                     process_event(index + 1)
@@ -256,49 +327,52 @@ class AutoMouseTracker:
 
         top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
 
-        blocker = InputBlocker(top_parent, hwnd)
+        blocker = InputBlocker(top_parent)
         self.active_blockers.append(blocker)
         blocker_thread = threading.Thread(target=blocker.create_overlay)
-        self.set_window_to_bottom(top_parent)
         blocker_thread.start()
 
-        time.sleep(MINIMUM_CLICK_DELAY)
+        self.set_window_to_bottom(top_parent)
 
-        if not self.check_image_presence(event, hwnd):
-            logging.info("No image match found.")
+        # 차단 창이 완전히 생성될 때까지 잠시 대기
+        time.sleep(0.5)
+
+        try:
+            if not self.check_image_presence(event, hwnd):
+                logging.info("No image match found.")
+                return False
+
+            click_delay = event.get("click_delay", 0)
+            if click_delay > 0:
+                time.sleep(click_delay / 1000)
+
+            if event.get("auto_update_target", False):
+                self.update_target_position(event, hwnd)
+
+            click_x = event["relative_x"] + event.get("click_offset_x", 0)
+            click_y = event["relative_y"] + event.get("click_offset_y", 0)
+
+            self.send_click_event(
+                click_x,
+                click_y,
+                hwnd,
+                event["move_cursor"],
+                event.get("double_click", False),
+                event["button"],
+            )
+
+            keyboard_input = event.get("keyboard_input", "")
+            if keyboard_input:
+                self.send_keyboard_input(keyboard_input, hwnd)
+
+            # 이벤트 처리 후 잠시 대기
+            time.sleep(0.5)
+
+            return True
+        finally:
             blocker.stop()
+            blocker_thread.join()
             self.active_blockers.remove(blocker)
-            return False
-
-        click_delay = event.get("click_delay", 0)
-        if click_delay > 0:
-            time.sleep(click_delay / 1000)
-
-        if event.get("auto_update_target", False):
-            self.update_target_position(event, hwnd)
-
-        click_x = event["relative_x"] + event.get("click_offset_x", 0)
-        click_y = event["relative_y"] + event.get("click_offset_y", 0)
-
-        self.send_click_event(
-            click_x,
-            click_y,
-            hwnd,
-            event["move_cursor"],
-            event.get("double_click", False),
-            event["button"],
-        )
-
-        keyboard_input = event.get("keyboard_input", "")
-        if keyboard_input:
-            self.send_keyboard_input(keyboard_input, hwnd)
-
-        time.sleep(MINIMUM_CLICK_DELAY)
-
-        blocker.stop()
-        blocker_thread.join()
-        self.active_blockers.remove(blocker)
-        return True
 
     def verify_click(self, event, hwnd):
         time.sleep(1)
@@ -525,18 +599,18 @@ class AutoMouseTracker:
                 win32con.SWP_NOACTIVATE | win32con.SWP_NOMOVE,
             )
 
-            # exe_path = os.path.join(
-            #     os.path.dirname(__file__), "WindowLayoutManager.exe"
-            # )
-            # ini_file = os.path.join(os.path.dirname(__file__), ini_file)
+            exe_path = os.path.join(
+                os.path.dirname(__file__), "WindowLayoutManager.exe"
+            )
+            ini_file = os.path.join(os.path.dirname(__file__), ini_file)
 
-            # success, _ = self.run_window_layout_manager(
-            #     exe_path, window_title, ini_file
-            # )
-            # if success:
-            #     print("Window layout restoration process completed successfully.")
-            # else:
-            #     print("Window layout restoration failed or timed out.")
+            success, _ = self.run_window_layout_manager(
+                exe_path, window_title, ini_file
+            )
+            if success:
+                print("Window layout restoration process completed successfully.")
+            else:
+                print("Window layout restoration failed or timed out.")
         except Exception as e:
             print(f"Failed to set UI position and size: {e}")
 
@@ -724,13 +798,15 @@ class AutoMouseTracker:
         title_match = window_title == window_text if window_title else True
         rect_match = True
 
-        if window_rect and not ignore_pos_size:
+        if window_rect and not ignore_pos_size and hwnd:
             rect = win32gui.GetWindowRect(hwnd)
+            tolerance = 10  # 오차 범위 ±10 픽셀
+
             rect_match = (
-                window_rect[0] == rect[0]
-                and window_rect[1] == rect[1]
-                and window_rect[2] == rect[2]
-                and window_rect[3] == rect[3]
+                abs(window_rect[0] - rect[0]) <= tolerance
+                and abs(window_rect[1] - rect[1]) <= tolerance
+                and abs(window_rect[2] - rect[2]) <= tolerance
+                and abs(window_rect[3] - rect[3]) <= tolerance
             )
 
         return class_match and name_match and title_match and rect_match
@@ -755,7 +831,12 @@ class AutoMouseTracker:
                     result = cv2.matchTemplate(img, target_image, cv2.TM_CCOEFF_NORMED)
                     _, max_val, _, max_loc = cv2.minMaxLoc(result)
                     if max_val >= event.get("similarity_threshold", 0.6):
-                        x, y, width, height = max_loc[0], max_loc[1], target_image.shape[1], target_image.shape[0]
+                        x, y, width, height = (
+                            max_loc[0],
+                            max_loc[1],
+                            target_image.shape[1],
+                            target_image.shape[0],
+                        )
                         event["relative_x"] = x + width // 2
                         event["relative_y"] = y + height // 2
                         break
