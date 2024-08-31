@@ -14,6 +14,7 @@ import win32ui
 import threading
 from logging.handlers import RotatingFileHandler
 from ctypes import windll
+import tkinter as tk
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -44,6 +45,64 @@ def configure_logging():
 configure_logging()
 
 
+class InputBlocker:
+    def __init__(self, hwnd):
+        self.hwnd = hwnd
+        self.overlay_hwnd = None
+        self.stop_event = threading.Event()
+        self.class_name = "OverlayWindowClass"
+
+    def create_overlay(self):
+        def overlay_window_proc(hwnd, msg, wparam, lparam):
+            if msg == win32con.WM_CLOSE:
+                win32gui.DestroyWindow(hwnd)
+            return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+
+        wc = win32gui.WNDCLASS()
+        wc.lpfnWndProc = overlay_window_proc
+        wc.lpszClassName = self.class_name
+        wc.hbrBackground = win32gui.GetStockObject(win32con.WHITE_BRUSH)
+
+        try:
+            win32gui.RegisterClass(wc)
+        except win32gui.error as e:
+            if e.winerror != 1410:  # 1410 is the error code for "Class already exists"
+                raise  # Re-raise the exception if it's not the "Class already exists" error
+
+        rect = win32gui.GetWindowRect(self.hwnd)
+        try:
+            self.overlay_hwnd = win32gui.CreateWindowEx(
+                win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT,
+                self.class_name,
+                "Overlay",
+                win32con.WS_POPUP,
+                rect[0],
+                rect[1],
+                rect[2] - rect[0],
+                rect[3] - rect[1],
+                0,
+                0,
+                0,
+                None,
+            )
+        except win32gui.error as e:
+            print(f"Failed to create overlay window: {e}")
+            return
+
+        win32gui.SetLayeredWindowAttributes(
+            self.overlay_hwnd, 0, 128, win32con.LWA_ALPHA
+        )
+        win32gui.ShowWindow(self.overlay_hwnd, win32con.SW_SHOW)
+
+        while not self.stop_event.is_set():
+            win32gui.PumpWaitingMessages()
+
+    def stop(self):
+        self.stop_event.set()
+        if self.overlay_hwnd:
+            win32gui.PostMessage(self.overlay_hwnd, win32con.WM_CLOSE, 0, 0)
+
+
 class AutoMouseTracker:
     def __init__(self, script_path):
         self.script_path = script_path
@@ -58,6 +117,8 @@ class AutoMouseTracker:
         self.running_script = False
         self.load_script()
         self.lock = threading.Lock()
+        self.script_completed = threading.Event()
+        self.active_blockers = []
 
     def load_script(self):
         try:
@@ -78,12 +139,14 @@ class AutoMouseTracker:
         def process_event(index):
             if not self.running_script:
                 logging.info("Script playback stopped.")
+                self.script_completed.set()
                 return
 
             if index >= len(self.script):
                 self.running_script = False
                 self.progress_bar_value = len(self.script)
                 logging.info("Script playback completed.")
+                self.script_completed.set()
                 return
 
             event = self.script[index]
@@ -132,14 +195,21 @@ class AutoMouseTracker:
             logging.warning(f"Failed to find hwnd for event: {event}")
             return False
 
-        # Hide the window by moving it to the bottom
-        self.set_window_to_bottom(hwnd)
+        top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
+
+        self.set_window_to_bottom(top_parent)
+
+        blocker = InputBlocker(top_parent)
+        self.active_blockers.append(blocker)
+        blocker_thread = threading.Thread(target=blocker.create_overlay)
+        blocker_thread.start()
 
         time.sleep(MINIMUM_CLICK_DELAY)
 
-        # 템플릿 매칭을 통해 이미지 존재 여부를 확인합니다.
         if not self.check_image_presence(event, hwnd):
             logging.info("No image match found.")
+            blocker.stop()
+            self.active_blockers.remove(blocker)
             return False
 
         click_delay = event.get("click_delay", 0)
@@ -147,23 +217,8 @@ class AutoMouseTracker:
             time.sleep(click_delay / 1000)
 
         if event.get("auto_update_target", False):
-            img = self.capture_window_image(hwnd)
-            if img is not None:
-                for image_path in event.get("image_paths", []):
-                    target_image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-                    if target_image is not None:
-                        result = cv2.matchTemplate(
-                            img, target_image, cv2.TM_CCOEFF_NORMED
-                        )
-                        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            self.update_target_position(event, hwnd)
 
-                        print(f"Max value: {max_val}, location: {max_loc}")
-
-                        if max_val >= event.get("similarity_threshold", 0.6):
-                            event["relative_x"], event["relative_y"] = max_loc
-                            break
-
-        # 클릭 오프셋 적용
         click_x = event["relative_x"] + event.get("click_offset_x", 0)
         click_y = event["relative_y"] + event.get("click_offset_y", 0)
 
@@ -180,10 +235,15 @@ class AutoMouseTracker:
         if keyboard_input:
             self.send_keyboard_input(keyboard_input, hwnd)
 
+        time.sleep(MINIMUM_CLICK_DELAY)
+
+        blocker.stop()
+        blocker_thread.join()
+        self.active_blockers.remove(blocker)
         return True
 
     def verify_click(self, event, hwnd):
-        time.sleep(1)  # 이미지 갱신을 위해 잠시 대기
+        time.sleep(1)
         if "verify_image" in event:
             return self.check_image_presence({"image": event["verify_image"]}, hwnd)
         return True
@@ -377,15 +437,12 @@ class AutoMouseTracker:
             return False
 
     def send_keyboard_input(self, text, hwnd):
-        # 현재 작업 디렉토리 경로
         current_dir = os.path.dirname(os.path.abspath(__name__))
         current_dir = os.path.join(current_dir, "temp")
         if not os.path.exists(current_dir):
             os.makedirs(current_dir)
 
         text = os.path.join(current_dir, text)
-
-        # log로 text 출력
         logging.info(f"Keyboard input: {text}")
 
         for char in text:
@@ -401,7 +458,6 @@ class AutoMouseTracker:
         if current_image is None:
             return False
 
-        # 현재 이미지를 그레이스케일로 변환
         current_image_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
 
         similarity_threshold = event.get("similarity_threshold", 0.6)
@@ -585,15 +641,12 @@ class AutoMouseTracker:
             lParam = win32api.MAKELONG(screen_x, screen_y)
         return lParam
 
-    def set_window_to_bottom(self, hwnd):
+    def set_window_to_bottom(self, top_parent):
         try:
-            # Get the top-level parent window
-            top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
-
             # Move all related windows to the bottom
             self.set_window_and_children_to_bottom(top_parent)
 
-            logging.info(f"Window {hwnd} and all related windows moved to bottom")
+            logging.info(f"Window {top_parent} and all related windows moved to bottom")
             return True
         except Exception as e:
             logging.error(f"Failed to set windows to bottom: {e}")
@@ -618,6 +671,17 @@ class AutoMouseTracker:
 
         win32gui.EnumChildWindows(hwnd, enum_child_windows, None)
 
+    def wait_for_completion(self):
+        self.script_completed.wait()
+
+    def cleanup(self):
+        for blocker in self.active_blockers:
+            blocker.stop()
+        self.active_blockers.clear()
+        if self.capture_thread:
+            self.capture_thread.join()
+        logging.shutdown()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -627,3 +691,9 @@ if __name__ == "__main__":
     script_path = sys.argv[1]
     tracker = AutoMouseTracker(script_path)
     tracker.play_script()
+
+    tracker.wait_for_completion()
+    tracker.cleanup()
+    print("Script execution completed. Exiting program.")
+    time.sleep(1)  # 1초 대기
+    sys.exit(0)
