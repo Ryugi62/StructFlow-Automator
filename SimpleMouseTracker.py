@@ -14,7 +14,6 @@ import win32ui
 import threading
 from logging.handlers import RotatingFileHandler
 from ctypes import windll
-import tkinter as tk
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -46,11 +45,12 @@ configure_logging()
 
 
 class InputBlocker:
-    def __init__(self, hwnd):
+    def __init__(self, hwnd, target_hwnd):
         self.hwnd = hwnd
         self.overlay_hwnd = None
         self.stop_event = threading.Event()
         self.class_name = "OverlayWindowClass"
+        self.target_hwnd = target_hwnd
 
     def create_overlay(self):
         def overlay_window_proc(hwnd, msg, wparam, lparam):
@@ -61,18 +61,19 @@ class InputBlocker:
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = overlay_window_proc
         wc.lpszClassName = self.class_name
-        wc.hbrBackground = win32gui.GetStockObject(win32con.WHITE_BRUSH)
+        wc.hbrBackground = win32gui.GetStockObject(win32con.NULL_BRUSH)  # 배경을 투명으로 설정
 
         try:
             win32gui.RegisterClass(wc)
         except win32gui.error as e:
-            if e.winerror != 1410:  # 1410 is the error code for "Class already exists"
-                raise  # Re-raise the exception if it's not the "Class already exists" error
+            if e.winerror != 1410:  # "Class already exists" error
+                raise
 
         rect = win32gui.GetWindowRect(self.hwnd)
         try:
+            # 차단 창 생성
             self.overlay_hwnd = win32gui.CreateWindowEx(
-                win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT,
+                win32con.WS_EX_LAYERED,
                 self.class_name,
                 "Overlay",
                 win32con.WS_POPUP,
@@ -89,15 +90,28 @@ class InputBlocker:
             print(f"Failed to create overlay window: {e}")
             return
 
-        win32gui.SetLayeredWindowAttributes(
-            self.overlay_hwnd, 0, 128, win32con.LWA_ALPHA
-        )
+        # 차단 창의 배경색을 노란색으로 설정하고 투명도를 50%로 설정
+        yellow_color = win32api.RGB(255, 255, 0)
+        win32gui.SetLayeredWindowAttributes(self.overlay_hwnd, yellow_color, 128, win32con.LWA_COLORKEY | win32con.LWA_ALPHA)
         win32gui.ShowWindow(self.overlay_hwnd, win32con.SW_SHOW)
 
-        # 차단창을 클릭할 hwnd보다 높은 z-order로 설정
+        # "blocked" 텍스트 그리기
+        hdc = win32gui.GetDC(self.overlay_hwnd)
+        font = win32ui.CreateFont({
+            "name": "Arial",
+            "height": 40,
+            "weight": win32con.FW_BOLD
+        })
+        win32gui.SelectObject(hdc, font.GetSafeHandle())
+        win32gui.SetTextColor(hdc, win32api.RGB(0, 0, 0))  # 검은색 텍스트
+        text_rect = (rect[0], rect[1], rect[2], rect[3])
+        win32gui.DrawText(hdc, "blocked", -1, text_rect, win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE)
+        win32gui.ReleaseDC(self.overlay_hwnd, hdc)
+
+        # 차단 창을 target_hwnd 바로 위에 위치시킴
         win32gui.SetWindowPos(
             self.overlay_hwnd,
-            self.hwnd,  # 클릭할 창의 위에 위치하도록 설정
+            self.target_hwnd,
             0, 0, 0, 0,
             win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
         )
@@ -205,13 +219,13 @@ class AutoMouseTracker:
 
         top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
 
+        self.set_window_to_bottom(top_parent)
 
-        blocker = InputBlocker(top_parent)
+        blocker = InputBlocker(top_parent, hwnd)
         self.active_blockers.append(blocker)
         blocker_thread = threading.Thread(target=blocker.create_overlay)
         blocker_thread.start()
 
-        self.set_window_to_bottom(top_parent)
         
         time.sleep(MINIMUM_CLICK_DELAY)
 
