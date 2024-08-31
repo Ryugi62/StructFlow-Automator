@@ -178,7 +178,7 @@ class MidasWindowManager:
             exe_path = os.path.join(
                 os.path.dirname(__file__), "WindowLayoutManager.exe"
             )
-            ini_file = os.path.join(os.path.dirname(__file__), "midas_gen.ini")
+            ini_file = os.path.join(os.path.dirname(__file__), ini_file)
 
             success, _ = self.run_window_layout_manager(
                 exe_path, window_title, ini_file
