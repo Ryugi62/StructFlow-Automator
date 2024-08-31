@@ -900,7 +900,7 @@ class MouseTracker(QWidget):
         if not target_image_paths:
             return False
 
-        current_image = self.capture_window_image(hwnd)
+        current_image = self.capture_thread.capture_window_image(hwnd)
         if current_image is None:
             return False
 

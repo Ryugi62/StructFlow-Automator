@@ -14,6 +14,7 @@ import win32ui
 import threading
 from logging.handlers import RotatingFileHandler
 from ctypes import windll
+import subprocess
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -51,6 +52,7 @@ class InputBlocker:
         self.stop_event = threading.Event()
         self.class_name = "OverlayWindowClass"
         self.target_hwnd = target_hwnd
+        self.update_thread = None
 
     def create_overlay(self):
         def overlay_window_proc(hwnd, msg, wparam, lparam):
@@ -61,7 +63,6 @@ class InputBlocker:
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = overlay_window_proc
         wc.lpszClassName = self.class_name
-        wc.hbrBackground = win32gui.GetStockObject(win32con.NULL_BRUSH)  # 배경을 투명으로 설정
 
         try:
             win32gui.RegisterClass(wc)
@@ -73,7 +74,7 @@ class InputBlocker:
         try:
             # 차단 창 생성
             self.overlay_hwnd = win32gui.CreateWindowEx(
-                win32con.WS_EX_LAYERED,
+                win32con.WS_EX_LAYERED | win32con.WS_EX_NOACTIVATE,
                 self.class_name,
                 "Overlay",
                 win32con.WS_POPUP,
@@ -87,42 +88,78 @@ class InputBlocker:
                 None,
             )
         except win32gui.error as e:
-            print(f"Failed to create overlay window: {e}")
+            logging.error(f"Failed to create overlay window: {e}")
             return
 
         # 차단 창의 배경색을 노란색으로 설정하고 투명도를 50%로 설정
         yellow_color = win32api.RGB(255, 255, 0)
-        win32gui.SetLayeredWindowAttributes(self.overlay_hwnd, yellow_color, 128, win32con.LWA_COLORKEY | win32con.LWA_ALPHA)
+        win32gui.SetLayeredWindowAttributes(
+            self.overlay_hwnd,
+            yellow_color,
+            128,
+            win32con.LWA_COLORKEY | win32con.LWA_ALPHA,
+        )
         win32gui.ShowWindow(self.overlay_hwnd, win32con.SW_SHOW)
 
         # "blocked" 텍스트 그리기
         hdc = win32gui.GetDC(self.overlay_hwnd)
-        font = win32ui.CreateFont({
-            "name": "Arial",
-            "height": 40,
-            "weight": win32con.FW_BOLD
-        })
+        font = win32ui.CreateFont(
+            {"name": "Arial", "height": 40, "weight": win32con.FW_BOLD}
+        )
         win32gui.SelectObject(hdc, font.GetSafeHandle())
         win32gui.SetTextColor(hdc, win32api.RGB(0, 0, 0))  # 검은색 텍스트
-        text_rect = (rect[0], rect[1], rect[2], rect[3])
-        win32gui.DrawText(hdc, "blocked", -1, text_rect, win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE)
+        text_rect = (0, 0, rect[2] - rect[0], rect[3] - rect[1])
+        win32gui.DrawText(
+            hdc,
+            "blocked",
+            -1,
+            text_rect,
+            win32con.DT_CENTER | win32con.DT_VCENTER | win32con.DT_SINGLELINE,
+        )
         win32gui.ReleaseDC(self.overlay_hwnd, hdc)
 
-        # 차단 창을 target_hwnd 바로 위에 위치시킴
-        win32gui.SetWindowPos(
-            self.overlay_hwnd,
-            self.target_hwnd,
-            0, 0, 0, 0,
-            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
-        )
+        # 초기 z-order 설정
+        self.update_z_order()
+
+        # z-order 업데이트를 위한 스레드 시작
+        self.update_thread = threading.Thread(target=self.update_z_order_loop)
+        self.update_thread.start()
 
         while not self.stop_event.is_set():
             win32gui.PumpWaitingMessages()
 
+    def update_z_order_loop(self):
+        while not self.stop_event.is_set():
+            self.update_z_order()
+            time.sleep(0.5)
+
+    def update_z_order(self):
+        if (
+            self.overlay_hwnd
+            and win32gui.IsWindow(self.overlay_hwnd)
+            and win32gui.IsWindow(self.target_hwnd)
+        ):
+            try:
+                # 차단 창을 target_hwnd 바로 위에 위치시킴
+                win32gui.SetWindowPos(
+                    self.overlay_hwnd,
+                    self.target_hwnd,
+                    0,
+                    0,
+                    0,
+                    0,
+                    win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE,
+                )
+            except win32gui.error as e:
+                logging.error(f"Failed to update z-order: {e}")
+
     def stop(self):
         self.stop_event.set()
-        if self.overlay_hwnd:
+        if self.update_thread:
+            self.update_thread.join()
+        if self.overlay_hwnd and win32gui.IsWindow(self.overlay_hwnd):
             win32gui.PostMessage(self.overlay_hwnd, win32con.WM_CLOSE, 0, 0)
+        self.overlay_hwnd = None
 
 
 class AutoMouseTracker:
@@ -192,8 +229,8 @@ class AutoMouseTracker:
                 image_present = self.check_image_presence(event, hwnd)
 
                 if (
-                    event["condition"] == "이미지가 있으면 스킵" and not image_present
-                ) or (event["condition"] == "이미지가 없으면 스킵" and image_present):
+                    event["condition"] == "이미지가 있으면 스킵" and image_present
+                ) or (event["condition"] == "이미지가 없으면 스킵" and not  image_present):
                     logging.info("Skipping click based on image presence condition.")
                     time.sleep(0.5)
                     process_event(index + 1)
@@ -219,14 +256,12 @@ class AutoMouseTracker:
 
         top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
 
-        self.set_window_to_bottom(top_parent)
-
         blocker = InputBlocker(top_parent, hwnd)
         self.active_blockers.append(blocker)
         blocker_thread = threading.Thread(target=blocker.create_overlay)
+        self.set_window_to_bottom(top_parent)
         blocker_thread.start()
 
-        
         time.sleep(MINIMUM_CLICK_DELAY)
 
         if not self.check_image_presence(event, hwnd):
@@ -289,6 +324,12 @@ class AutoMouseTracker:
 
     def find_target_hwnd(self, event):
         try:
+            # 만약 window_class가 combo box면 set_ui_position_and_size를 실행합니다.
+            if event.get("window_class") == "ComboBox":
+                self.set_ui_position_and_size(
+                    event["program_name"], "set_save_window.ini"
+                )
+
             hwnds = self.find_hwnd(
                 event["program_name"],
                 event["window_class"],
@@ -431,6 +472,73 @@ class AutoMouseTracker:
 
         win32gui.EnumChildWindows(parent_hwnd, enum_child_proc, None)
         return child_windows
+
+    def run_window_layout_manager(self, exe_path, window_title, ini_file, timeout=300):
+        command = [exe_path, window_title, ini_file]
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            start_time = time.time()
+            output_lines = []
+            while True:
+                output = process.stdout.readline()
+                if output == "" and process.poll() is not None:
+                    break
+                if output:
+                    output_lines.append(output.strip())
+                    print(output_lines[-1])
+
+                if time.time() - start_time > timeout:
+                    print(f"Timeout after {timeout} seconds. Terminating process.")
+                    process.terminate()
+                    return False, output_lines
+
+            if process.poll() == 0:
+                print("Process completed successfully.")
+                return True, output_lines
+            else:
+                print(f"Error occurred: {process.stderr.read()}")
+                return False, output_lines
+        except Exception as e:
+            print(f"Subprocess failed: {e}")
+            return False, []
+
+    def set_ui_position_and_size(self, hwnd, ini_file):
+        try:
+            window_title = "다른 이름으로 저장"
+            window_hwnd = win32gui.FindWindow(None, window_title)
+
+            win32gui.SetWindowPos(
+                window_hwnd,
+                win32con.HWND_TOP,
+                58,
+                63,
+                1018,
+                625,
+                win32con.SWP_NOACTIVATE | win32con.SWP_NOMOVE,
+            )
+
+            # exe_path = os.path.join(
+            #     os.path.dirname(__file__), "WindowLayoutManager.exe"
+            # )
+            # ini_file = os.path.join(os.path.dirname(__file__), ini_file)
+
+            # success, _ = self.run_window_layout_manager(
+            #     exe_path, window_title, ini_file
+            # )
+            # if success:
+            #     print("Window layout restoration process completed successfully.")
+            # else:
+            #     print("Window layout restoration failed or timed out.")
+        except Exception as e:
+            print(f"Failed to set UI position and size: {e}")
 
     def send_click_event(
         self, relative_x, relative_y, hwnd, move_cursor, double_click, button
@@ -615,6 +723,7 @@ class AutoMouseTracker:
         name_match = window_name == window_text if window_name else True
         title_match = window_title == window_text if window_title else True
         rect_match = True
+
         if window_rect and not ignore_pos_size:
             rect = win32gui.GetWindowRect(hwnd)
             rect_match = (
@@ -623,6 +732,7 @@ class AutoMouseTracker:
                 and window_rect[2] == rect[2]
                 and window_rect[3] == rect[3]
             )
+
         return class_match and name_match and title_match and rect_match
 
     def check_conditions(self, event, hwnd):
@@ -645,7 +755,9 @@ class AutoMouseTracker:
                     result = cv2.matchTemplate(img, target_image, cv2.TM_CCOEFF_NORMED)
                     _, max_val, _, max_loc = cv2.minMaxLoc(result)
                     if max_val >= event.get("similarity_threshold", 0.6):
-                        event["relative_x"], event["relative_y"] = max_loc
+                        x, y, width, height = max_loc[0], max_loc[1], target_image.shape[1], target_image.shape[0]
+                        event["relative_x"] = x + width // 2
+                        event["relative_y"] = y + height // 2
                         break
 
     def move_cursor(self, current_y):
@@ -706,6 +818,7 @@ class AutoMouseTracker:
             self.capture_thread.join()
         logging.shutdown()
         self.script_completed.set()  # Ensure the event is set to allow exit
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
