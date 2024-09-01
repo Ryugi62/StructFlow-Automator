@@ -16,6 +16,8 @@ from logging.handlers import RotatingFileHandler
 from ctypes import windll
 import subprocess
 import pywintypes
+import keyboard
+
 
 # Constants
 WM_MOUSEMOVE = 0x0200
@@ -32,7 +34,7 @@ SAMPLE_TARGETS_DIR = os.path.join(
 
 # Maximum retry count for click events
 MAX_RETRY_COUNT = 5
-MINIMUM_CLICK_DELAY = 1  # 최소 대기시간 2초
+MINIMUM_CLICK_DELAY = 2  # 최소 대기시간 2초
 
 
 def configure_logging():
@@ -69,8 +71,11 @@ class InputBlocker:
                 win32con.WM_MOUSEWHEEL,
                 win32con.WM_KEYDOWN,
                 win32con.WM_KEYUP,
+                win32con.WM_CHAR,
+                win32con.WM_SYSKEYDOWN,
+                win32con.WM_SYSKEYUP,
             ]:
-                return 0  # 사용자 입력 메시지를 명확히 차단
+                return 0  # 모든 입력 이벤트를 차단
             return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
         wc = win32gui.WNDCLASS()
@@ -289,6 +294,7 @@ class InputBlocker:
                 logging.error(f"Failed to close overlay window: {e}")
         self.overlay_hwnd = None
 
+
 class AutoMouseTracker:
     def __init__(self, script_path):
         self.script_path = script_path
@@ -305,6 +311,8 @@ class AutoMouseTracker:
         self.lock = threading.Lock()
         self.script_completed = threading.Event()
         self.active_blockers = []
+        self.before_hwnd = None
+        self.before_window = None
 
     def load_script(self):
         try:
@@ -337,6 +345,20 @@ class AutoMouseTracker:
 
             event = self.script[index]
 
+            # 제공된 sys.argv[2]에 가림막을 생성합니다.
+            # 만약 제곧된 self.before_hwnd가 더이상 존재하지 않는다면, sys.argv[2]를 사용합니다.
+
+            if self.before_hwnd is not None and win32gui.IsWindow(self.before_hwnd):
+                blocker = InputBlocker(self.before_hwnd)
+                self.active_blockers.append(blocker)
+                blocker_thread = threading.Thread(target=blocker.create_overlay)
+                blocker_thread.start()
+            else:
+                blocker = InputBlocker(sys.argv[2])
+                self.active_blockers.append(blocker)
+                blocker_thread = threading.Thread(target=blocker.create_overlay)
+                blocker_thread.start()
+
             if event.get("condition") == "이미지 찾을때까지 계속 기다리기":
                 while True:
                     try:
@@ -363,6 +385,9 @@ class AutoMouseTracker:
                     process_event(index + 1)
                     return
 
+            # 대기하는동한 생성한 가림막 제거
+            blocker.stop()
+
             repeat_count = event.get("repeat_count", 1)
             for _ in range(repeat_count):
                 if not self.process_single_event(event):
@@ -383,17 +408,23 @@ class AutoMouseTracker:
 
         top_parent = win32gui.GetAncestor(hwnd, win32con.GA_ROOT)
 
+        self.before_hwnd = top_parent
+
+        if win32gui.GetWindowText(top_parent) == "다른 이름으로 저장":
+            print("다른 이름으로 저장 창이 열려있습니다.")
+            self.block_all_keyboard_input()
+        else:
+            self.unblock_all_keyboard_input()
+
         blocker = None
-        if event.get("window_class") != "ComboBox":
-            blocker = InputBlocker(top_parent)
-            self.active_blockers.append(blocker)
-            blocker_thread = threading.Thread(target=blocker.create_overlay)
-            blocker_thread.start()
 
-            self.set_window_to_bottom(top_parent)
+        blocker = InputBlocker(top_parent)
+        self.active_blockers.append(blocker)
+        blocker_thread = threading.Thread(target=blocker.create_overlay)
+        blocker_thread.start()
 
-            # 차단 창이 완전히 생성될 때까지 잠시 대기
-            time.sleep(0.5)
+        self.set_window_to_bottom(top_parent)
+        time.sleep(0.5)
 
         try:
             if not self.check_image_presence(event, hwnd):
@@ -431,7 +462,6 @@ class AutoMouseTracker:
             if blocker:
                 blocker.stop()
                 self.active_blockers.remove(blocker)
-
 
     def verify_click(self, event, hwnd):
         time.sleep(1)
@@ -648,9 +678,11 @@ class AutoMouseTracker:
             window_hwnd = win32gui.FindWindow(None, window_title)
 
             if window_hwnd == 0 or not win32gui.IsWindow(window_hwnd):
-                logging.warning("Window not found or invalid, skipping UI position and size setting.")
+                logging.warning(
+                    "Window not found or invalid, skipping UI position and size setting."
+                )
                 return
-            
+
             # win32con.HWND_BOTTOM으로 설정하여 창을 최하위로 이동시킵니다.
             win32gui.SetWindowPos(
                 window_hwnd,
@@ -714,8 +746,24 @@ class AutoMouseTracker:
             logging.error(f"Failed to send click event: {e}")
             return False
 
+    def block_all_keyboard_input(self):
+        try:
+            for i in range(256):
+                keyboard.block_key(i)
+            logging.info("All keyboard inputs blocked successfully")
+        except Exception as e:
+            logging.error(f"Failed to block keyboard inputs: {e}")
+
+    def unblock_all_keyboard_input(self):
+        try:
+            if keyboard.is_blocked(0):
+                keyboard.unblock_all()
+                logging.info("All keyboard inputs unblocked successfully")
+        except Exception as e:
+            logging.error(f"Failed to unblock keyboard inputs: {e}")
+
     def send_keyboard_input(self, text, hwnd):
-        current_dir = os.path.dirname(os.path.abspath(__name__))
+        current_dir = os.path.dirname(os.path.abspath(__file__))
         current_dir = os.path.join(current_dir, "temp")
         if not os.path.exists(current_dir):
             os.makedirs(current_dir)
@@ -723,9 +771,18 @@ class AutoMouseTracker:
         text = os.path.join(current_dir, text)
         logging.info(f"Keyboard input: {text}")
 
-        for char in text:
-            win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
-            time.sleep(0.05)
+        try:
+            # ctrl + a를 눌러 모든 텍스트를 선택합니다.
+            win32api.SendMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_CONTROL, 0)
+            # 지우기 키를 눌러 선택된 텍스트를 삭제합니다.
+            win32api.SendMessage(hwnd, win32con.WM_KEYDOWN, win32con.VK_BACK, 0)
+
+            for char in text:
+                # char를 입력할 때 hwnd를 활성화 하지 않고 입력합니다.
+                win32api.SendMessage(hwnd, win32con.WM_CHAR, ord(char), 0)
+                time.sleep(0.05)
+        except Exception as e:
+            logging.error(f"Failed to send keyboard input: {e}")
 
     def check_image_presence(self, event, hwnd):
         target_image_paths = event["image"].get("target_paths", [])
