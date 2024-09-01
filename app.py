@@ -162,9 +162,10 @@ class MidasWindowManager:
         time.sleep(15)
         return True
 
-    def save_original_position_and_size(self):
-        print(f"self.mmidas_hwnd: {self.midas_hwnd}")
-
+    def save_original_position_and_size(self, solar_file):
+        # self.midas_hwnd 다시 갖고오기
+        self.midas_hwnd = self._get_hwnds_by_filepath(solar_file)[0]
+        
         if self.midas_hwnd:
             rect = win32gui.GetWindowRect(self.midas_hwnd)
             self.original_position = (rect[0], rect[1])
@@ -637,7 +638,7 @@ class App(ctk.CTk):
 
         print("Midas Gen 파일이 열렸습니다.")
 
-        self.window_manager.save_original_position_and_size()
+        self.window_manager.save_original_position_and_size(solar_file)
 
         print("save_original_position_and_size")
 
@@ -761,6 +762,7 @@ class App(ctk.CTk):
             self.get_satellite_image(address=self.get_address("sollar"))
 
             # 마이다스 내부 자료 생성 자동화 시작
+
             self.run_close_notice()
             self.run_set_display()
             self.run_calculate()
@@ -769,7 +771,17 @@ class App(ctk.CTk):
             self.generate_table()
             self.generate_dummy_image()
             self.generate_boundaries_type()
-
+            self.generate_load_case1()
+            self.generate_load_case2()
+            self.generate_load_case3()
+            self.generate_load_case4()
+            self.generate_load_case5()
+            self.generate_load_case6()
+            self.generate_load_case7()
+            self.generate_load_case8()
+            self.generate_load_case9()
+            self.generate_load_case10()
+            self.generate_reaction_cball_stl_env_ser()
             return
             self.set_reaction_force_moments()
         finally:
@@ -963,6 +975,83 @@ class App(ctk.CTk):
                 continue
             break
 
+    def generate_load_case1(self):
+        while True:
+            self.run_json_file("create_img_load1.json")
+            if not os.path.exists(self.get_temp_file_path("load_case1.jpg")):
+                continue
+            break
+
+    def generate_load_case2(self):
+        while True:
+            self.run_json_file("create_img_load2.json")
+            if not os.path.exists(self.get_temp_file_path("load_case2.jpg")):
+                continue
+            break
+
+    def generate_load_case3(self):
+        while True:
+            self.run_json_file("create_img_load3.json")
+            if not os.path.exists(self.get_temp_file_path("load_case3.jpg")):
+                continue
+            break
+
+    def generate_load_case4(self):
+        while True:
+            self.run_json_file("create_img_load4.json")
+            if not os.path.exists(self.get_temp_file_path("load_case4.jpg")):
+                continue
+            break
+
+    def generate_load_case5(self):
+        while True:
+            self.run_json_file("create_img_load5.json")
+            if not os.path.exists(self.get_temp_file_path("load_case5.jpg")):
+                continue
+            break
+
+    def generate_load_case6(self):
+        while True:
+            self.run_json_file("create_img_load6.json")
+            if not os.path.exists(self.get_temp_file_path("load_case6.jpg")):
+                continue
+            break
+
+    def generate_load_case7(self):
+        while True:
+            self.run_json_file("create_img_load7.json")
+            if not os.path.exists(self.get_temp_file_path("load_case7.jpg")):
+                continue
+            break
+
+    def generate_load_case8(self):
+        while True:
+            self.run_json_file("create_img_load8.json")
+            if not os.path.exists(self.get_temp_file_path("load_case8.jpg")):
+                continue
+            break
+
+    def generate_load_case9(self):
+        while True:
+            self.run_json_file("create_img_load9.json")
+            if not os.path.exists(self.get_temp_file_path("load_case9.jpg")):
+                continue
+            break
+
+    def generate_load_case10(self):
+        while True:
+            self.run_json_file("create_img_load10.json")
+            if not os.path.exists(self.get_temp_file_path("load_case10.jpg")):
+                continue
+            break
+
+    def generate_reaction_cball_stl_env_ser(self):
+        while True:
+            self.run_json_file("create_img_reaction_cball_stl_env_ser.json")
+            if not os.path.exists(self.get_temp_file_path("reaction_cball_stl_env_ser.jpg")):
+                continue
+            break
+
     def set_reaction_force_moments(self):
         while True:
             self.run_json_file("set_reaction_force_moments.json")
@@ -975,8 +1064,12 @@ class App(ctk.CTk):
 
     def run_json_file(self, json_file):
         json_path = os.path.join(self.json_directory, json_file)
+        midas_hwnd = self.window_manager.midas_hwnd
+        print(f"midas_hwnd: {midas_hwnd}")
         if os.path.exists(json_path):
-            subprocess.run(["python", "SimpleMouseTracker.py", json_path])
+            subprocess.run(
+                ["python", "SimpleMouseTracker.py", json_path, str(midas_hwnd)]
+            )
         else:
             print(f"Warning: JSON file {json_file} not found.")
 
